@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FoodCourt Express · Domicilios del centro comercial</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">🚚 <span>FoodCourt</span> Express</div>
+  <div class="top-actions">
+    <button id="btnUser" class="btn ghost">Iniciar sesión</button>
+    <button id="btnCart" class="btn primary">🛒 Carrito <span id="cartCount" class="badge">0</span></button>
+  </div>
+</header>
+
+<!-- ============ VISTA 1: MENÚ ============ -->
+<main id="viewMenu" class="view active">
+  <section class="hero">
+    <h1>Pide desde tu puesto de trabajo</h1>
+    <p>Comida de los restaurantes del centro comercial, entregada por nuestros domiciliarios.</p>
+  </section>
+
+  <nav id="filters" class="filters" aria-label="Restaurantes"></nav>
+  <section id="grid" class="grid"></section>
+</main>
+
+<!-- ============ VISTA 2: EN PREPARACIÓN ============ -->
+<main id="viewStatus" class="view">
+  <section class="status-card">
+    <div class="truck">🚚</div>
+    <h1>¡Tu producto está en preparación!</h1>
+    <p id="statusInfo" class="muted"></p>
+
+    <ol id="steps" class="steps">
+      <li data-s="pendiente"><i>1</i>Pedido recibido</li>
+      <li data-s="preparando"><i>2</i>En preparación</li>
+      <li data-s="en camino"><i>3</i>En camino</li>
+      <li data-s="entregado"><i>4</i>Entregado</li>
+    </ol>
+
+    <div class="summary" id="statusSummary"></div>
+    <button id="btnBack" class="btn primary">Hacer otro pedido</button>
+  </section>
+</main>
+
+<!-- ============ CARRITO (panel lateral) ============ -->
+<aside id="cart" class="cart" aria-hidden="true">
+  <div class="cart-head">
+    <h2>Tu pedido</h2>
+    <button id="closeCart" class="icon-btn" aria-label="Cerrar">✕</button>
+  </div>
+  <div id="cartItems" class="cart-items"></div>
+  <div class="coupon">
+    <input id="couponInput" type="text" placeholder="Código de cupón">
+    <button id="applyCoupon" class="btn ghost">Aplicar</button>
+  </div>
+  <p id="couponMsg" class="muted small"></p>
+  <label class="field">Punto de entrega
+    <input id="address" type="text" placeholder="Ej: Piso 2, Local 214">
+  </label>
+  <div class="totals">
+    <div><span>Subtotal</span><b id="tSub">$0</b></div>
+    <div><span>Descuento</span><b id="tDisc">$0</b></div>
+    <div class="big"><span>Total</span><b id="tTotal">$0</b></div>
+  </div>
+  <button id="checkout" class="btn primary block">Confirmar pedido</button>
+</aside>
+<div id="overlay" class="overlay"></div>
+
+<!-- ============ LOGIN (ventana emergente) ============ -->
+<div id="loginModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <form id="loginForm" class="modal-box">
+    <button type="button" class="icon-btn close" data-close>✕</button>
+    <div class="modal-logo">🍔</div>
+    <h2 id="loginTitle">Bienvenido, empleado</h2>
+    <p class="muted">Inicia sesión para pedir. Solo empleados registrados del centro comercial.</p>
+    <label class="field">Correo
+      <input id="email" type="email" placeholder="empleado@centro.com" required>
+    </label>
+    <label class="field">Contraseña
+      <input id="password" type="password" placeholder="••••••••" required>
+    </label>
+    <p id="loginError" class="error"></p>
+    <button class="btn primary block" type="submit">Entrar</button>
+    <p class="muted small">Demo: <b>ana@centro.com</b> / <b>1234</b></p>
+  </form>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
