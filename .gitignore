@@ -144,3 +144,9 @@ vite.config.ts.timestamp-*
 
 # Fotos subidas desde la app (persistencia dual)
 backend/uploads/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FoodCourt Express · Domicilios del centro comercial</title>
-<link rel="stylesheet" href="Styles.css">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
@@ -73,7 +73,8 @@
   <p id="couponMsg" class="muted small"></p>
   <div id="myCoupons" class="coupon-chips"></div>
   <label class="field">Punto de entrega
-    <input id="address" type="text" placeholder="Ej: Falabella, piso 1, caja 3">
+    <input id="address" name="punto_entrega" type="text" placeholder="Ej: Falabella, piso 1, caja 3" maxlength="255">
+    <small class="field-error"></small>
   </label>
   <div class="totals">
     <div><span>Subtotal</span><b id="tSub">$0</b></div>
@@ -86,24 +87,86 @@
 
 <!-- ============ LOGIN (ventana emergente) ============ -->
 <div id="loginModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
-  <form id="loginForm" class="modal-box">
+  <form id="loginForm" class="modal-box" novalidate>
     <button type="button" class="icon-btn close" data-close>✕</button>
     <div class="modal-logo">🍔</div>
     <h2 id="loginTitle">Bienvenido</h2>
     <p class="muted">Empleados, restaurantes y domiciliarios del centro comercial.</p>
     <label class="field">Correo
-      <input id="email" type="email" placeholder="empleado@centro.com" required>
+      <input id="email" name="correo" type="email" placeholder="empleado@centro.com" autocomplete="email">
+      <small class="field-error"></small>
     </label>
     <label class="field">Contraseña
-      <input id="password" type="password" placeholder="••••••••" required>
+      <input id="password" name="contrasenia" type="password" placeholder="••••••••" autocomplete="current-password">
+      <small class="field-error"></small>
     </label>
-    <p id="loginError" class="error"></p>
+    <p id="loginError" class="error" role="alert"></p>
     <button class="btn primary block" type="submit">Entrar</button>
+    <p class="muted small">¿Trabajas en el centro comercial y no tienes cuenta? <button type="button" class="link" data-ir-registro>Regístrate</button></p>
     <p class="muted small">Demo (clave <b>1234</b>): <b>ana@centro.com</b> · <b>burger@foodcourt.co</b> · <b>andres@foodcourt.co</b></p>
   </form>
 </div>
 
+<!-- ============ REGISTRO DE EMPLEADOS (ventana emergente) ============ -->
+<div id="registroModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="registroTitle">
+  <form id="registroForm" class="modal-box wide" novalidate>
+    <button type="button" class="icon-btn close" data-close>✕</button>
+    <div class="modal-logo">🧑‍🍳</div>
+    <h2 id="registroTitle">Crea tu cuenta</h2>
+    <p class="muted">Para empleados del centro comercial. Los campos con * son obligatorios.</p>
+    <div class="form-grid">
+      <label class="field">Primer nombre *
+        <input name="primer_nombre" type="text" autocomplete="given-name" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Segundo nombre
+        <input name="segundo_nombre" type="text" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Primer apellido *
+        <input name="primer_apellido" type="text" autocomplete="family-name" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Segundo apellido
+        <input name="segundo_apellido" type="text" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Documento *
+        <input name="documento" type="text" inputmode="numeric" placeholder="Sin puntos" maxlength="12">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Celular *
+        <input name="telefono" type="tel" inputmode="numeric" placeholder="3001234567" maxlength="10" autocomplete="tel">
+        <small class="field-error"></small>
+      </label>
+      <label class="field full">Correo *
+        <input name="correo" type="email" placeholder="tu@correo.com" autocomplete="email">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Centro comercial *
+        <select name="id_centro"><option value="">Cargando…</option></select>
+        <small class="field-error"></small>
+      </label>
+      <label class="field">¿Dónde trabajas? *
+        <input name="local_trabajo" type="text" placeholder="Ej: Falabella, piso 1" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Contraseña *
+        <input name="contrasenia" type="password" autocomplete="new-password" placeholder="Mínimo 8, letras y números">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Confirmar contraseña *
+        <input name="confirmar" type="password" autocomplete="new-password">
+        <small class="field-error"></small>
+      </label>
+    </div>
+    <p id="registroError" class="error" role="alert"></p>
+    <button class="btn primary block" type="submit">Crear cuenta</button>
+    <p class="muted small">¿Ya tienes cuenta? <button type="button" class="link" data-ir-login>Inicia sesión</button></p>
+  </form>
+</div>
+
 <div id="toast" class="toast"></div>
-<script src="App.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
