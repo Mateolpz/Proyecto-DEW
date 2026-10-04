@@ -121,3 +121,39 @@ body{font-family:"Trebuchet MS",system-ui,sans-serif;background:var(--bg);color:
   .btn{padding:8px 12px;font-size:.85rem}
   .grid{grid-template-columns:1fr}
 }
+/* ====== Seguimiento: extras ====== */
+.btn.danger{color:#d33}
+.coupon-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip.mini{padding:4px 10px;font-size:.8rem}
+.brand{cursor:pointer}
+[hidden]{display:none !important}
+
+/* ====== Paneles (mis pedidos / restaurante / domiciliario) ====== */
+.panel-list{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));align-items:start}
+.panel-list .vacio,.panel-list .error{grid-column:1/-1;text-align:center;padding:30px}
+.order{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;display:grid;gap:10px}
+.order.clickable{cursor:pointer;transition:.2s}
+.order.clickable:hover{transform:translateY(-3px)}
+.order header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.order-meta{display:grid;gap:3px;font-size:.88rem;color:var(--muted)}
+.order-items{margin:0;padding:10px 12px 10px 28px;background:var(--bg);border-radius:12px;font-size:.92rem}
+.order-foot{display:flex;justify-content:space-between;align-items:center;font-size:1.05rem}
+.order-foot a{font-size:.85rem;color:var(--brand)}
+.order-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:10px;border-top:2px dashed rgba(0,0,0,.12)}
+.order-actions .btn{padding:8px 14px;font-size:.9rem}
+.order-actions .btn:not(.ghost){background:var(--brand);color:#fff}
+.order-actions select{padding:8px 10px;border-radius:12px;border:2px solid rgba(0,0,0,.12);font:inherit;background:var(--bg);color:var(--ink);max-width:100%}
+.estado{font-size:.75rem;font-weight:800;padding:4px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px;background:var(--bg)}
+.estado.pendiente{background:#ffe9b8;color:#7a5200}
+.estado.preparando{background:#ffd9c7;color:#9a3412}
+.estado.en_camino{background:#d6e9ff;color:#1d4f91}
+.estado.entregado{background:#d3f2df;color:#1f6b3d}
+.estado.cancelado{background:#f3d6d6;color:#8a1f1f}
+.file-btn{position:relative;overflow:hidden;border:2px dashed currentColor;border-radius:999px;padding:7px 14px;font-weight:700;font-size:.88rem;cursor:pointer;color:var(--brand)}
+.file-btn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.prod-row{grid-template-columns:64px 1fr;align-items:center}
+.prod-row .order-actions{grid-column:1/-1}
+.prod-thumb{width:64px;height:64px;border-radius:14px;overflow:hidden;display:grid;place-items:center;font-size:2rem;
+  background:linear-gradient(135deg,var(--accent),var(--brand))}
+.prod-thumb img{width:100%;height:100%;object-fit:cover}
+.prod-info{display:grid;gap:2px}

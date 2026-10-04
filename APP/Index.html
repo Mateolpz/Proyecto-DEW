@@ -4,19 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FoodCourt Express · Domicilios del centro comercial</title>
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="Styles.css">
 </head>
 <body>
 
 <header class="topbar">
-  <div class="brand">🚚 <span>FoodCourt</span> Express</div>
+  <div class="brand" id="brand">🚚 <span>FoodCourt</span> Express</div>
   <div class="top-actions">
+    <button id="btnPedidos" class="btn ghost" hidden>📋 Mis pedidos</button>
     <button id="btnUser" class="btn ghost">Iniciar sesión</button>
     <button id="btnCart" class="btn primary">🛒 Carrito <span id="cartCount" class="badge">0</span></button>
   </div>
 </header>
 
-<!-- ============ VISTA 1: MENÚ ============ -->
+<!-- ============ VISTA 1: MENÚ (empleado) ============ -->
 <main id="viewMenu" class="view active">
   <section class="hero">
     <h1>Pide desde tu puesto de trabajo</h1>
@@ -27,23 +28,35 @@
   <section id="grid" class="grid"></section>
 </main>
 
-<!-- ============ VISTA 2: EN PREPARACIÓN ============ -->
+<!-- ============ VISTA 2: SEGUIMIENTO DEL PEDIDO ============ -->
 <main id="viewStatus" class="view">
   <section class="status-card">
-    <div class="truck">🚚</div>
-    <h1>¡Tu producto está en preparación!</h1>
+    <div class="truck" id="statusIcon">🚚</div>
+    <h1 id="statusTitle">¡Tu producto está en preparación!</h1>
     <p id="statusInfo" class="muted"></p>
 
     <ol id="steps" class="steps">
       <li data-s="pendiente"><i>1</i>Pedido recibido</li>
       <li data-s="preparando"><i>2</i>En preparación</li>
-      <li data-s="en camino"><i>3</i>En camino</li>
+      <li data-s="en_camino"><i>3</i>En camino</li>
       <li data-s="entregado"><i>4</i>Entregado</li>
     </ol>
 
+    <p id="statusExtra" class="muted small"></p>
     <div class="summary" id="statusSummary"></div>
+    <button id="btnCancel" class="btn ghost danger" hidden>Cancelar pedido</button>
     <button id="btnBack" class="btn primary">Hacer otro pedido</button>
   </section>
+</main>
+
+<!-- ============ VISTA 3: PANELES (mis pedidos / restaurante / domiciliario) ============ -->
+<main id="viewPanel" class="view">
+  <section class="hero">
+    <h1 id="panelTitle">Panel</h1>
+    <p id="panelSub"></p>
+  </section>
+  <nav id="panelTabs" class="filters"></nav>
+  <section id="panelBody" class="panel-list"></section>
 </main>
 
 <!-- ============ CARRITO (panel lateral) ============ -->
@@ -58,8 +71,9 @@
     <button id="applyCoupon" class="btn ghost">Aplicar</button>
   </div>
   <p id="couponMsg" class="muted small"></p>
+  <div id="myCoupons" class="coupon-chips"></div>
   <label class="field">Punto de entrega
-    <input id="address" type="text" placeholder="Ej: Piso 2, Local 214">
+    <input id="address" type="text" placeholder="Ej: Falabella, piso 1, caja 3">
   </label>
   <div class="totals">
     <div><span>Subtotal</span><b id="tSub">$0</b></div>
@@ -75,8 +89,8 @@
   <form id="loginForm" class="modal-box">
     <button type="button" class="icon-btn close" data-close>✕</button>
     <div class="modal-logo">🍔</div>
-    <h2 id="loginTitle">Bienvenido, empleado</h2>
-    <p class="muted">Inicia sesión para pedir. Solo empleados registrados del centro comercial.</p>
+    <h2 id="loginTitle">Bienvenido</h2>
+    <p class="muted">Empleados, restaurantes y domiciliarios del centro comercial.</p>
     <label class="field">Correo
       <input id="email" type="email" placeholder="empleado@centro.com" required>
     </label>
@@ -85,11 +99,11 @@
     </label>
     <p id="loginError" class="error"></p>
     <button class="btn primary block" type="submit">Entrar</button>
-    <p class="muted small">Demo: <b>ana@centro.com</b> / <b>1234</b></p>
+    <p class="muted small">Demo (clave <b>1234</b>): <b>ana@centro.com</b> · <b>burger@foodcourt.co</b> · <b>andres@foodcourt.co</b></p>
   </form>
 </div>
 
 <div id="toast" class="toast"></div>
-<script src="app.js"></script>
+<script src="App.js"></script>
 </body>
 </html>
