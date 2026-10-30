@@ -9,14 +9,15 @@
 <body>
 
 <header class="topbar">
-  <div class="brand">🚚 <span>FoodCourt</span> Express</div>
+  <div class="brand" id="brand">🚚 <span>FoodCourt</span> Express</div>
   <div class="top-actions">
+    <button id="btnPedidos" class="btn ghost" hidden>📋 Mis pedidos</button>
     <button id="btnUser" class="btn ghost">Iniciar sesión</button>
     <button id="btnCart" class="btn primary">🛒 Carrito <span id="cartCount" class="badge">0</span></button>
   </div>
 </header>
 
-<!-- ============ VISTA 1: MENÚ ============ -->
+<!-- ============ VISTA 1: MENÚ (empleado) ============ -->
 <main id="viewMenu" class="view active">
   <section class="hero">
     <h1>Pide desde tu puesto de trabajo</h1>
@@ -27,23 +28,35 @@
   <section id="grid" class="grid"></section>
 </main>
 
-<!-- ============ VISTA 2: EN PREPARACIÓN ============ -->
+<!-- ============ VISTA 2: SEGUIMIENTO DEL PEDIDO ============ -->
 <main id="viewStatus" class="view">
   <section class="status-card">
-    <div class="truck">🚚</div>
-    <h1>¡Tu producto está en preparación!</h1>
+    <div class="truck" id="statusIcon">🚚</div>
+    <h1 id="statusTitle">¡Tu producto está en preparación!</h1>
     <p id="statusInfo" class="muted"></p>
 
     <ol id="steps" class="steps">
       <li data-s="pendiente"><i>1</i>Pedido recibido</li>
       <li data-s="preparando"><i>2</i>En preparación</li>
-      <li data-s="en camino"><i>3</i>En camino</li>
+      <li data-s="en_camino"><i>3</i>En camino</li>
       <li data-s="entregado"><i>4</i>Entregado</li>
     </ol>
 
+    <p id="statusExtra" class="muted small"></p>
     <div class="summary" id="statusSummary"></div>
+    <button id="btnCancel" class="btn ghost danger" hidden>Cancelar pedido</button>
     <button id="btnBack" class="btn primary">Hacer otro pedido</button>
   </section>
+</main>
+
+<!-- ============ VISTA 3: PANELES (mis pedidos / restaurante / domiciliario) ============ -->
+<main id="viewPanel" class="view">
+  <section class="hero">
+    <h1 id="panelTitle">Panel</h1>
+    <p id="panelSub"></p>
+  </section>
+  <nav id="panelTabs" class="filters"></nav>
+  <section id="panelBody" class="panel-list"></section>
 </main>
 
 <!-- ============ CARRITO (panel lateral) ============ -->
@@ -58,8 +71,10 @@
     <button id="applyCoupon" class="btn ghost">Aplicar</button>
   </div>
   <p id="couponMsg" class="muted small"></p>
+  <div id="myCoupons" class="coupon-chips"></div>
   <label class="field">Punto de entrega
-    <input id="address" type="text" placeholder="Ej: Piso 2, Local 214">
+    <input id="address" name="punto_entrega" type="text" placeholder="Ej: Falabella, piso 1, caja 3" maxlength="255">
+    <small class="field-error"></small>
   </label>
   <div class="totals">
     <div><span>Subtotal</span><b id="tSub">$0</b></div>
@@ -72,20 +87,82 @@
 
 <!-- ============ LOGIN (ventana emergente) ============ -->
 <div id="loginModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
-  <form id="loginForm" class="modal-box">
+  <form id="loginForm" class="modal-box" novalidate>
     <button type="button" class="icon-btn close" data-close>✕</button>
     <div class="modal-logo">🍔</div>
-    <h2 id="loginTitle">Bienvenido, empleado</h2>
-    <p class="muted">Inicia sesión para pedir. Solo empleados registrados del centro comercial.</p>
+    <h2 id="loginTitle">Bienvenido</h2>
+    <p class="muted">Empleados, restaurantes y domiciliarios del centro comercial.</p>
     <label class="field">Correo
-      <input id="email" type="email" placeholder="empleado@centro.com" required>
+      <input id="email" name="correo" type="email" placeholder="empleado@centro.com" autocomplete="email">
+      <small class="field-error"></small>
     </label>
     <label class="field">Contraseña
-      <input id="password" type="password" placeholder="••••••••" required>
+      <input id="password" name="contrasenia" type="password" placeholder="••••••••" autocomplete="current-password">
+      <small class="field-error"></small>
     </label>
-    <p id="loginError" class="error"></p>
+    <p id="loginError" class="error" role="alert"></p>
     <button class="btn primary block" type="submit">Entrar</button>
-    <p class="muted small">Demo: <b>ana@centro.com</b> / <b>1234</b></p>
+    <p class="muted small">¿Trabajas en el centro comercial y no tienes cuenta? <button type="button" class="link" data-ir-registro>Regístrate</button></p>
+    <p class="muted small">Demo (clave <b>1234</b>): <b>ana@centro.com</b> · <b>burger@foodcourt.co</b> · <b>andres@foodcourt.co</b></p>
+  </form>
+</div>
+
+<!-- ============ REGISTRO DE EMPLEADOS (ventana emergente) ============ -->
+<div id="registroModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="registroTitle">
+  <form id="registroForm" class="modal-box wide" novalidate>
+    <button type="button" class="icon-btn close" data-close>✕</button>
+    <div class="modal-logo">🧑‍🍳</div>
+    <h2 id="registroTitle">Crea tu cuenta</h2>
+    <p class="muted">Para empleados del centro comercial. Los campos con * son obligatorios.</p>
+    <div class="form-grid">
+      <label class="field">Primer nombre *
+        <input name="primer_nombre" type="text" autocomplete="given-name" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Segundo nombre
+        <input name="segundo_nombre" type="text" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Primer apellido *
+        <input name="primer_apellido" type="text" autocomplete="family-name" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Segundo apellido
+        <input name="segundo_apellido" type="text" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Documento *
+        <input name="documento" type="text" inputmode="numeric" placeholder="Sin puntos" maxlength="12">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Celular *
+        <input name="telefono" type="tel" inputmode="numeric" placeholder="3001234567" maxlength="10" autocomplete="tel">
+        <small class="field-error"></small>
+      </label>
+      <label class="field full">Correo *
+        <input name="correo" type="email" placeholder="tu@correo.com" autocomplete="email">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Centro comercial *
+        <select name="id_centro"><option value="">Cargando…</option></select>
+        <small class="field-error"></small>
+      </label>
+      <label class="field">¿Dónde trabajas? *
+        <input name="local_trabajo" type="text" placeholder="Ej: Falabella, piso 1" maxlength="100">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Contraseña *
+        <input name="contrasenia" type="password" autocomplete="new-password" placeholder="Mínimo 8, letras y números">
+        <small class="field-error"></small>
+      </label>
+      <label class="field">Confirmar contraseña *
+        <input name="confirmar" type="password" autocomplete="new-password">
+        <small class="field-error"></small>
+      </label>
+    </div>
+    <p id="registroError" class="error" role="alert"></p>
+    <button class="btn primary block" type="submit">Crear cuenta</button>
+    <p class="muted small">¿Ya tienes cuenta? <button type="button" class="link" data-ir-login>Inicia sesión</button></p>
   </form>
 </div>
 
