@@ -48,6 +48,20 @@ CREATE TABLE usuarios (
   UNIQUE KEY uq_usuarios_documento (documento)
 ) ENGINE = InnoDB;
 
+
+-- =====================================================================
+-- 2b. SESIONES: un registro por token emitido (permite cerrar sesión de verdad)
+-- id_sesion es el claim "jti" del JWT. Al hacer logout se marca cerrada.
+-- =====================================================================
+CREATE TABLE sesiones (
+  id_sesion      CHAR(36)     NOT NULL,
+  id_usuarioFK   INT UNSIGNED NOT NULL,
+  creada_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  cerrada        BOOLEAN      NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (id_sesion),
+  CONSTRAINT fk_sesion_usuario FOREIGN KEY (id_usuarioFK) REFERENCES usuarios (id_usuario) ON DELETE CASCADE
+) ENGINE = InnoDB;
+
 -- =====================================================================
 -- 3. ARCHIVOS: metadatos de todo lo que se sube (PERSISTENCIA DUAL)
 -- El archivo físico queda en disco o en la nube; aquí solo sus datos.
