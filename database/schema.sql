@@ -7,6 +7,7 @@
 -- ATENCIÓN: borra y vuelve a crear la base de datos foodcourt.
 -- =====================================================================
 
+SET NAMES utf8mb4;   -- tildes y ñ correctas aunque se ejecute desde la consola
 DROP DATABASE IF EXISTS foodcourt;
 CREATE DATABASE foodcourt
   CHARACTER SET utf8mb4           -- soporta tildes, ñ y emojis
