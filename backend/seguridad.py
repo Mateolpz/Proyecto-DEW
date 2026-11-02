@@ -1,10 +1,15 @@
 """Errores de la API, contraseñas (bcrypt), tokens (JWT) y control de roles."""
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 from fastapi import Depends, Header
+
+from db import ejecutar, get_db, uno
+
+DURACION_SESION = timedelta(hours=8)
 
 
 class ErrorApi(Exception):
@@ -28,17 +33,30 @@ def verificar_clave(clave: str, hash_guardado: str) -> bool:
         return False
 
 
-def crear_token(usuario: dict) -> str:
-    datos = {**usuario, "exp": datetime.now(timezone.utc) + timedelta(hours=8)}
+def crear_token(usuario: dict, conn) -> str:
+    """Crea una sesión en la BD y devuelve un JWT que apunta a ella (claim jti)."""
+    id_sesion = str(uuid.uuid4())
+    ejecutar(conn, "INSERT INTO sesiones (id_sesion, id_usuarioFK) VALUES (%s, %s)", (id_sesion, usuario["id"]))
+    datos = {**usuario, "jti": id_sesion, "exp": datetime.now(timezone.utc) + DURACION_SESION}
     return jwt.encode(datos, secreto(), algorithm="HS256")
 
 
-def usuario_actual(authorization: str = Header(default="")):
+def usuario_actual(authorization: str = Header(default=""), conn=Depends(get_db)):
     token = authorization.replace("Bearer ", "")
     try:
-        return jwt.decode(token, secreto(), algorithms=["HS256"])
+        u = jwt.decode(token, secreto(), algorithms=["HS256"])
     except jwt.PyJWTError:
         raise ErrorApi(401, "Inicia sesión para continuar")
+    # El token puede seguir vigente, pero la sesión pudo cerrarse o el usuario desactivarse
+    estado = uno(conn,
+        """SELECT s.cerrada, u.activo FROM sesiones s
+             JOIN usuarios u ON u.id_usuario = s.id_usuarioFK
+            WHERE s.id_sesion = %s""", (u.get("jti"),))
+    if not estado or estado["cerrada"]:
+        raise ErrorApi(401, "Tu sesión terminó, inicia sesión de nuevo")
+    if not estado["activo"]:
+        raise ErrorApi(401, "Tu usuario está desactivado")
+    return u
 
 
 def requiere(*roles):
