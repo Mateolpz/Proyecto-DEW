@@ -202,6 +202,9 @@ Cualquier empleado nuevo puede crear su cuenta desde **Regístrate** en la venta
 | GET | `/api/mis-productos` | restaurante | Productos de su restaurante |
 | PATCH | `/api/productos/:id` | restaurante | `{disponible?, precio?}` |
 | POST | `/api/productos/:id/foto` | restaurante | `multipart`, campo `archivo` |
+| POST | `/api/logout` | logueado | Cierra la sesión e invalida el token |
+| POST | `/api/mis-productos` | restaurante | Crea un producto (201) |
+| DELETE | `/api/productos/:id` | restaurante | Elimina un producto sin pedidos (409 si tiene pedidos) |
 
 Los errores siempre responden `{"error": "...", "campos": {"campo": "mensaje"}}`; el frontend muestra cada mensaje debajo de su campo.
 Las rutas protegidas usan `Authorization: Bearer <token>` (JWT, 8 h). El admin tiene todos los permisos.
