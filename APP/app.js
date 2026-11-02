@@ -18,7 +18,11 @@ async function api(ruta, opciones = {}) {
   try { res = await fetch(API + ruta, { ...opciones, headers }); }
   catch { throw new Error("No hay conexión con el servidor (¿está corriendo npm start en la carpeta backend?)"); }
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && token) cerrarSesion(false);
+   if (res.status === 401 && token) {          // la sesión venció o se cerró en otra parte
+    cerrarSesion(false);
+    toast("Tu sesión terminó, vuelve a iniciar sesión");
+    abrirLogin(true);
+  }
   if (!res.ok) throw Object.assign(new Error(data.error || "Error del servidor"), { campos: data.campos });
   return data;
 }
@@ -251,8 +255,10 @@ function pintarUsuario() {
     : usuario.rol === "domiciliario" ? "🛵 Mis entregas" : "🍳 Panel";
 }
 function cerrarSesion(avisar = true) {
+  const tokenActual = token;
   token = null; usuario = null; cupon = null;
   sessionStorage.removeItem("token"); sessionStorage.removeItem("usuario");
+  if (tokenActual) fetch(API + "/logout", { method: "POST", headers: { Authorization: "Bearer " + tokenActual } }).catch(() => {});
   pintarUsuario(); pintarCarrito(); mostrarVista("#viewMenu");
   if (avisar) toast("Sesión cerrada");
 }

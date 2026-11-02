@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from archivos import guardar_archivo, leer_imagen
 from db import ejecutar, get_db, todos, transaccion, uno
 from seguridad import ErrorApi, requiere
+from typing import Literal
 
 router = APIRouter(prefix="/api", tags=["Pedidos"])
 
@@ -198,7 +199,7 @@ PERMISOS_ESTADO = {
 
 
 class EstadoIn(BaseModel):
-    estado: str
+    estado: Literal["pendiente", "preparando", "en_camino", "entregado", "cancelado"]
 
 
 @router.patch("/pedidos/{id_pedido}/estado")

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from db import ejecutar, get_db, todos, transaccion, uno
-from seguridad import ErrorApi, crear_token, hashear, verificar_clave
+from seguridad import ErrorApi, crear_token, hashear, usuario_actual, verificar_clave
 
 router = APIRouter(prefix="/api", tags=["Sesión"])
 
@@ -14,10 +14,10 @@ CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 NOMBRE = re.compile(r"^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' -]{2,100}$")
 
 
-def datos_sesion(u: dict) -> dict:
+def datos_sesion(conn, u: dict) -> dict:
     usuario = {"id": u["id_usuario"], "nombre": u["primer_nombre"], "apellido": u["primer_apellido"],
                "correo": u["correo"], "rol": u["rol"]}
-    return {"token": crear_token(usuario), "usuario": usuario}
+    return {"token": crear_token(usuario, conn), "usuario": usuario}
 
 
 class LoginIn(BaseModel):
@@ -39,7 +39,14 @@ def login(datos: LoginIn, conn=Depends(get_db)):
         raise ErrorApi(401, "Correo o contraseña incorrectos")
     if not u["activo"]:
         raise ErrorApi(403, "Tu usuario está desactivado")
-    return datos_sesion(u)
+    return datos_sesion(conn, u)
+
+
+@router.post("/logout")
+def logout(u=Depends(usuario_actual), conn=Depends(get_db)):
+    """Cierra la sesión actual: el token deja de servir aunque no haya vencido."""
+    ejecutar(conn, "UPDATE sesiones SET cerrada = TRUE WHERE id_sesion = %s", (u["jti"],))
+    return {"ok": True}
 
 
 @router.get("/centros")
@@ -104,4 +111,4 @@ def registro(d: RegistroIn, conn=Depends(get_db)):
         ejecutar(conn,
             "INSERT INTO empleados (id_usuarioFK, id_centroFK, local_trabajo, verificado) VALUES (%s, %s, %s, %s)",
             (c.lastrowid, d.id_centro, d.local_trabajo, verificado))
-    return datos_sesion(uno(conn, "SELECT * FROM usuarios WHERE id_usuario = %s", (c.lastrowid,)))
+    return datos_sesion(conn, uno(conn, "SELECT * FROM usuarios WHERE id_usuario = %s", (c.lastrowid,)))
