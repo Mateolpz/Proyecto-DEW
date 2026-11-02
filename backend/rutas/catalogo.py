@@ -1,6 +1,6 @@
 """Restaurantes y productos (público) + gestión de productos (restaurante)."""
 from fastapi import APIRouter, Depends, File, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from archivos import guardar_archivo, leer_imagen
 from db import ejecutar, get_db, todos, transaccion, uno
@@ -62,7 +62,7 @@ def editar_producto(id_producto: int, d: ProductoIn, u=Depends(requiere("restaur
     ejecutar(conn, "UPDATE productos SET disponible = %s, precio = %s WHERE id_producto = %s",
              (p["disponible"] if d.disponible is None else d.disponible,
               p["precio"] if d.precio is None else d.precio, id_producto))
-    return {"ok": True}
+    return uno(conn, SELECT_PRODUCTO + " WHERE p.id_producto = %s", (id_producto,))
 
 
 @router.post("/productos/{id_producto}/foto", status_code=201)
@@ -76,3 +76,33 @@ async def subir_foto(id_producto: int, archivo: UploadFile | None = File(None),
         id_foto = guardar_archivo(conn, imagen, "foto_producto", u["id"])
         ejecutar(conn, "UPDATE productos SET id_fotoFK = %s WHERE id_producto = %s", (id_foto, id_producto))
     return {"foto": uno(conn, "SELECT ruta_url FROM archivos WHERE id_archivo = %s", (id_foto,))["ruta_url"]}
+
+class ProductoNuevo(BaseModel):
+    nombre_producto: str = ""
+    descripcion: str = ""
+    precio: float = Field(default=0, gt=0)
+    disponible: bool = True
+
+
+@router.post("/mis-productos", status_code=201)
+def crear_producto(d: ProductoNuevo, u=Depends(requiere("restaurante")), conn=Depends(get_db)):
+    nombre = d.nombre_producto.strip()
+    if not 2 <= len(nombre) <= 150:
+        raise ErrorApi(400, "Revisa los campos marcados", {"nombre_producto": "Entre 2 y 150 caracteres"})
+    restaurante = uno(conn, "SELECT id_restaurante FROM restaurantes WHERE id_administradorFK = %s", (u["id"],))
+    if not restaurante:
+        raise ErrorApi(404, "No tienes un restaurante asociado")
+    cur = ejecutar(conn,
+        """INSERT INTO productos (id_restauranteFK, nombre_producto, descripcion, precio, disponible)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (restaurante["id_restaurante"], nombre, d.descripcion.strip(), d.precio, d.disponible))
+    return uno(conn, SELECT_PRODUCTO + " WHERE p.id_producto = %s", (cur.lastrowid,))
+
+
+@router.delete("/productos/{id_producto}")
+def eliminar_producto(id_producto: int, u=Depends(requiere("restaurante")), conn=Depends(get_db)):
+    producto_propio(conn, id_producto, u)
+    if uno(conn, "SELECT 1 AS ok FROM detalle_pedidos WHERE id_productoFK = %s LIMIT 1", (id_producto,)):
+        raise ErrorApi(409, "No se puede eliminar: el producto ya tiene pedidos. Márcalo como no disponible.")
+    ejecutar(conn, "DELETE FROM productos WHERE id_producto = %s", (id_producto,))
+    return {"ok": True}
