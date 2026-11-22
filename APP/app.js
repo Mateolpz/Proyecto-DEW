@@ -123,7 +123,9 @@ function pintarFiltros() {
 function pintarMenu() {
   const lista = productos.filter(p => !filtro || p.r === filtro);
   $("#grid").innerHTML = lista.map(p => {
-    const r = restaurantes.find(x => x.id === p.r), e = emojiDe(r);
+        const r = restaurantes.find(x => x.id === p.r);
+    if (!r) return "";                       // restaurante inactivo o aún no cargado: no se pinta
+    const e = emojiDe(r);
     return `<article class="card ${p.disponible ? "" : "off"}">
       <div class="photo">${img(foto(p.foto), p.nombre, e)}</div>
       <div class="rest-logo" title="${esc(r.nombre)}">${img(foto(r.logo), r.nombre, e)}</div>
@@ -308,7 +310,7 @@ function iniciarSesion(r) {
 function pintarUsuario() {
   $("#btnUser").textContent = usuario ? `👤 ${usuario.nombre} · Salir` : "Iniciar sesión";
   $("#btnCart").hidden = !esEmpleado();
-  $("#btnPedidos").hidden = !usuario;
+   $("#ctaAuth").hidden = !!usuario;        // la landing solo ofrece login/registro a quien no tiene sesión
   $("#btnPedidos").textContent = !usuario ? "" : usuario.rol === "empleado" ? "📋 Mis pedidos"
     : usuario.rol === "domiciliario" ? "🛵 Mis entregas" : "🍳 Panel";
 }
@@ -571,6 +573,7 @@ document.addEventListener("click", async (e) => {
   if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) cerrarVentana();
   if (t.hasAttribute?.("data-ir-registro")) abrirRegistro();
   if (t.hasAttribute?.("data-ir-login")) abrirLogin(true);
+    if (t.hasAttribute?.("data-ver-menu")) $("#grid").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 // Confirmación en dos toques (sin ventanas emergentes del navegador)
 function confirmarAccion(boton, texto = "¿Seguro? Toca otra vez") {

@@ -36,6 +36,9 @@ body{font-family:"Trebuchet MS",system-ui,sans-serif;background:var(--bg);color:
 .hero{text-align:center;padding:24px 0 8px}
 .hero h1{font-size:clamp(1.6rem,4vw,2.6rem)}
 .hero p{color:var(--muted);margin-top:6px}
+.cta-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center;margin-top:18px}
+.cta-auth{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.cta-auth[hidden]{display:none}
 
 .filters{display:flex;gap:10px;overflow-x:auto;padding:16px 2px;scrollbar-width:none}
 .chip{flex:none;border:2px solid var(--brand);background:transparent;color:var(--brand);border-radius:999px;
