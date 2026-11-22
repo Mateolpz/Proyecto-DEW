@@ -3,6 +3,7 @@
 -- Ejecutar DESPUÉS de schema.sql
 -- Coinciden con los datos de demostración de la app (App.js).
 -- =====================================================================
+SET NAMES utf8mb4;   -- tildes y ñ correctas aunque se ejecute desde la consola
 USE foodcourt;
 
 INSERT INTO centros_comerciales (nombre, direccion, ciudad) VALUES

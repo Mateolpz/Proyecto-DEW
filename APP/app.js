@@ -1,12 +1,12 @@
 /* =====================================================================
    FoodCourt Express · Frontend
-   Consume la API de backend/server.js. Roles:
+   Consume la API REST de backend/main.py (Python + FastAPI). Roles:
    empleado → menú, carrito y seguimiento · restaurante → panel de pedidos y productos
    domiciliario → entregas asignadas · admin → panel del restaurante con todos los pedidos
    ===================================================================== */
 
 /* ====== API ====== */
-// Si lo sirve Express (puerto 3000) usa la misma URL; si lo abres directo o con Live Server, apunta al backend local
+// Si lo sirve el backend (puerto 3000) usa la misma URL; si lo abres directo o con Live Server, apunta al backend local
 const SERVIDOR = location.port === "3000" ? "" : "http://localhost:3000";
 const API = SERVIDOR + "/api";
 
@@ -16,10 +16,12 @@ async function api(ruta, opciones = {}) {
   if (token) headers.Authorization = "Bearer " + token;
   let res;
   try { res = await fetch(API + ruta, { ...opciones, headers }); }
-  catch { throw new Error("No hay conexión con el servidor (¿está corriendo npm start en la carpeta backend?)"); }
+  catch { throw new Error("No hay conexión con el servidor (¿está corriendo python main.py en la carpeta backend?)"); }
   const data = await res.json().catch(() => ({}));
    if (res.status === 401 && token) {          // la sesión venció o se cerró en otra parte
+    const donde = location.hash;
     cerrarSesion(false);
+    if (RUTAS_PRIVADAS[donde.split("/")[1]]) sessionStorage.setItem("destino", donde);
     toast("Tu sesión terminó, vuelve a iniciar sesión");
     abrirLogin(true);
   }
@@ -49,6 +51,51 @@ let cupon = null;
 let token = sessionStorage.getItem("token");
 let usuario = JSON.parse(sessionStorage.getItem("usuario") || "null");
 const esEmpleado = () => !usuario || usuario.rol === "empleado";
+
+/* ====== Rutas (hash) ======
+   Públicas:  #/  ·  #/login  ·  #/registro
+   Privadas:  #/mis-pedidos  ·  #/pedido/:id  (empleado)
+              #/panel[/pestaña]  (restaurante/admin)  ·  #/entregas[/pestaña]  (domiciliario)
+   Una ruta privada sin sesión redirige a #/login y, al entrar, vuelve a donde iba. */
+const RUTAS_PRIVADAS = {
+  "mis-pedidos": ["empleado"], "pedido": ["empleado"],
+  "panel": ["restaurante"], "entregas": ["domiciliario"],
+};
+const inicioDe = (rol) => rol === "empleado" ? "#/mis-pedidos" : rol === "domiciliario" ? "#/entregas" : "#/panel";
+function ir(hash, reemplazar = false) {
+  if (location.hash === hash) return router();
+  if (reemplazar) location.replace(hash); else location.hash = hash;
+}
+async function router() {
+  const [, seccion = "", param] = location.hash.replace(/^#/, "").split("/");
+  const privada = RUTAS_PRIVADAS[seccion];
+  if (privada && !usuario) {                          // sin sesión → al login, recordando el destino
+    sessionStorage.setItem("destino", location.hash);
+    toast("Inicia sesión para continuar");
+    return ir("#/login", true);
+  }
+  if (privada && !privada.includes(usuario.rol) && usuario.rol !== "admin") return ir(inicioDe(usuario.rol), true);
+  if (["login", "registro"].includes(seccion) && usuario) return ir(inicioDe(usuario.rol), true);
+  cerrarModales();
+  switch (seccion) {
+    case "login": mostrarVista("#viewMenu"); return mostrarLogin();
+    case "registro": mostrarVista("#viewMenu"); return mostrarRegistro();
+    case "mis-pedidos": case "panel": case "entregas": pestana = param || "pedidos"; return abrirPanel();
+    case "pedido":
+      try { seguirPedido(await api(`/pedidos/${param}`)); }
+      catch (e) { toast(e.message); ir(inicioDe(usuario.rol), true); }
+      return;
+    default:
+      if (usuario && !esEmpleado()) return ir(inicioDe(usuario.rol), true);
+      mostrarVista("#viewMenu");
+  }
+}
+window.addEventListener("hashchange", router);
+// Cierra una ventana de login/registro: si estaba en su propia ruta, vuelve al inicio
+function cerrarVentana() {
+  pendienteCheckout = false; cerrarModales();
+  if (/^#\/(login|registro)/.test(location.hash)) ir(sessionStorage.getItem("destino") && usuario ? sessionStorage.getItem("destino") : "#/", true);
+}
 
 function mostrarVista(id) {
   ["#viewMenu", "#viewStatus", "#viewPanel"].forEach((v) => $(v).classList.toggle("active", v === id));
@@ -169,6 +216,8 @@ const REGLAS = {
   id_centro: (v) => !v ? "Elige tu centro comercial" : "",
   local_trabajo: (v) => v.length < 3 ? "Indica dónde trabajas (ej. Falabella, piso 1)" : "",
   punto_entrega: (v) => v.length < 3 ? "Indica dónde te lo llevamos (ej. Falabella, piso 1)" : "",
+  nombre_producto: (v) => v.length < 2 ? "Escribe el nombre del producto" : v.length > 150 ? "Máximo 150 caracteres" : "",
+  precio: (v) => !v ? "Escribe el precio" : !(Number(v) > 0) ? "El precio debe ser mayor que 0" : "",
 };
 function mostrarError(input, mensaje) {
   const campo = input.closest(".field");
@@ -222,13 +271,17 @@ function cerrarModales() {
   document.querySelectorAll(".modal.open").forEach(m => m.classList.remove("open"));
 }
 function abrirLogin(v) {
+  if (!v) return cerrarModales();
+  ir("#/login");
+}
+function abrirRegistro() { ir("#/registro"); }
+function mostrarLogin() {
   cerrarModales();
-  if (!v) return;
   limpiarErrores($("#loginForm")); $("#loginError").textContent = "";
   $("#loginModal").classList.add("open");
   setTimeout(() => $("#email").focus(), 50);
 }
-async function abrirRegistro() {
+async function mostrarRegistro() {
   cerrarModales();
   const f = $("#registroForm");
   limpiarErrores(f); $("#registroError").textContent = "";
@@ -244,8 +297,13 @@ function iniciarSesion(r) {
   token = r.token; usuario = r.usuario;
   sessionStorage.setItem("token", token); sessionStorage.setItem("usuario", JSON.stringify(usuario));
   cerrarModales(); pintarUsuario(); toast(`¡Hola, ${usuario.nombre}!`);
-  if (usuario.rol !== "empleado") { carrito = {}; pintarCarrito(); return abrirPanel(); }
-  if (pendienteCheckout) { pendienteCheckout = false; confirmarPedido(); }
+  if (usuario.rol !== "empleado") { carrito = {}; pintarCarrito(); }
+  const destino = sessionStorage.getItem("destino");
+  sessionStorage.removeItem("destino");
+  if (usuario.rol === "empleado" && pendienteCheckout) {   // venía de confirmar el carrito
+    pendienteCheckout = false; ir("#/", true); return confirmarPedido();
+  }
+  ir(destino || (usuario.rol === "empleado" ? "#/" : inicioDe(usuario.rol)), true);
 }
 function pintarUsuario() {
   $("#btnUser").textContent = usuario ? `👤 ${usuario.nombre} · Salir` : "Iniciar sesión";
@@ -259,7 +317,8 @@ function cerrarSesion(avisar = true) {
   token = null; usuario = null; cupon = null;
   sessionStorage.removeItem("token"); sessionStorage.removeItem("usuario");
   if (tokenActual) fetch(API + "/logout", { method: "POST", headers: { Authorization: "Bearer " + tokenActual } }).catch(() => {});
-  pintarUsuario(); pintarCarrito(); mostrarVista("#viewMenu");
+  sessionStorage.removeItem("destino");
+  pintarUsuario(); pintarCarrito(); ir("#/", true);
   if (avisar) toast("Sesión cerrada");
 }
 $("#loginForm").addEventListener("submit", async (e) => {
@@ -315,7 +374,7 @@ async function confirmarPedido() {
       items: Object.entries(carrito).map(([id, cantidad]) => ({ id: +id, cantidad })) }) });
     carrito = {}; cupon = null; $("#couponInput").value = ""; $("#couponMsg").textContent = "";
     pintarCarrito(); abrirCarrito(false);
-    seguirPedido(pedido);
+    ir(`#/pedido/${pedido.id}`);
   } catch (e) {
     if (!erroresDelServidor($("#cart"), e.campos)) toast(e.message);
     if (/agotado/i.test(e.message)) cargarMenu();
@@ -439,9 +498,27 @@ function tarjetaPedido(p, repartidores) {
     ${acciones ? `<div class="order-actions">${acciones}</div>` : ""}
   </article>`;
 }
+function formNuevoProducto() {
+  return `<form id="formProducto" class="order prod-new" novalidate>
+    <header><b>➕ Nuevo producto</b></header>
+    <label class="field">Nombre
+      <input name="nombre_producto" maxlength="150" placeholder="Ej. Malteada de fresa">
+      <small class="field-error"></small>
+    </label>
+    <label class="field">Descripción
+      <input name="descripcion" maxlength="255" placeholder="Ej. 400 ml, con crema">
+      <small class="field-error"></small>
+    </label>
+    <label class="field">Precio
+      <input name="precio" type="number" min="1" step="100" inputmode="numeric" placeholder="12000">
+      <small class="field-error"></small>
+    </label>
+    <div class="order-actions"><button class="btn" type="submit">Crear producto</button></div>
+  </form>`;
+}
 function pintarProductosPanel(lista) {
-  if (!lista.length) return `<p class="muted vacio">Tu restaurante no tiene productos.</p>`;
-  return lista.map(p => {
+  if (!lista.length) return formNuevoProducto() + `<p class="muted vacio">Tu restaurante todavía no tiene productos.</p>`;
+  return formNuevoProducto() + lista.map(p => {
     const r = restaurantes.find(x => x.id === p.r);
     return `<article class="order prod-row">
       <div class="prod-thumb">${img(foto(p.foto), p.nombre, emojiDe(r))}</div>
@@ -449,6 +526,7 @@ function pintarProductosPanel(lista) {
       <div class="order-actions">
         <button class="btn ${p.disponible ? "ghost" : ""}" data-toggle="${p.id}" data-disp="${p.disponible ? 0 : 1}">${p.disponible ? "Marcar agotado" : "Marcar disponible"}</button>
         <label class="file-btn">📷 Cambiar foto<input type="file" accept="image/*" data-foto="${p.id}"></label>
+        <button class="btn ghost danger" data-eliminar="${p.id}">🗑️ Eliminar</button>
       </div></article>`;
   }).join("");
 }
@@ -467,8 +545,8 @@ document.addEventListener("click", async (e) => {
   if (d.inc) { carrito[d.inc]++; pintarCarrito(); }
   if (d.dec) { if (--carrito[d.dec] <= 0) delete carrito[d.dec]; pintarCarrito(); }
   if (d.cupon) aplicarCupon(d.cupon);
-  if (d.tab) { pestana = d.tab; abrirPanel(); }
-  if (d.ver) { try { seguirPedido(await api(`/pedidos/${d.ver}`)); } catch (err) { toast(err.message); } }
+  if (d.tab) ir(`${inicioDe(usuario.rol)}/${d.tab}`);
+  if (d.ver) ir(`#/pedido/${d.ver}`);
   if (d.estado && d.id) {
     if (d.estado === "cancelado" && !confirmarAccion(t)) return;
     accionPanel(() => cambiarEstado(d.id, d.estado), `Pedido #${d.id}: ${ETIQUETA[d.estado].toLowerCase()}`);
@@ -483,9 +561,14 @@ document.addEventListener("click", async (e) => {
     const fd = new FormData(); if (archivo) fd.append("archivo", archivo);
     accionPanel(() => api(`/pedidos/${d.entregar}/entregar`, { method: "POST", body: fd }), "¡Pedido entregado!");
   }
+  if (d.eliminar) {
+    if (!confirmarAccion(t)) return;
+    accionPanel(() => api(`/productos/${d.eliminar}`, { method: "DELETE" }), "Producto eliminado")
+      .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
+  }
   if (d.toggle) accionPanel(() => api(`/productos/${d.toggle}`, { method: "PATCH", body: JSON.stringify({ disponible: d.disp === "1" }) }))
     .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
-  if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) { pendienteCheckout = false; cerrarModales(); }
+  if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) cerrarVentana();
   if (t.hasAttribute?.("data-ir-registro")) abrirRegistro();
   if (t.hasAttribute?.("data-ir-login")) abrirLogin(true);
 });
@@ -497,6 +580,24 @@ function confirmarAccion(boton, texto = "¿Seguro? Toca otra vez") {
   setTimeout(() => { delete boton.dataset.confirmado; boton.textContent = original; }, 3000);
   return false;
 }
+// Crear producto (POST /api/mis-productos)
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "formProducto") return;
+  e.preventDefault();
+  const f = e.target;
+  if (!validarTodo(f)) return;
+  const boton = f.querySelector("[type=submit]");
+  boton.disabled = true; boton.textContent = "Creando…";
+  try {
+    const p = await api("/mis-productos", { method: "POST", body: JSON.stringify({
+      nombre_producto: f.nombre_producto.value.trim(), descripcion: f.descripcion.value.trim(), precio: Number(f.precio.value) }) });
+    toast(`"${p.nombre}" quedó en el menú`);
+    ultimoPanel = ""; cargarPanel(); cargarMenu();
+  } catch (err) {
+    if (!erroresDelServidor(f, err.campos)) toast(err.message);
+    boton.disabled = false; boton.textContent = "Crear producto";
+  }
+});
 document.addEventListener("change", (e) => {
   const t = e.target;
   if (t.dataset.foto && t.files[0]) {
@@ -509,19 +610,19 @@ document.addEventListener("change", (e) => {
 $("#btnCart").onclick = () => abrirCarrito(true);
 $("#closeCart").onclick = $("#overlay").onclick = () => abrirCarrito(false);
 $("#btnUser").onclick = () => usuario ? cerrarSesion() : abrirLogin(true);
-$("#btnPedidos").onclick = abrirPanel;
-$("#brand").onclick = () => usuario && !esEmpleado() ? abrirPanel() : mostrarVista("#viewMenu");
+$("#btnPedidos").onclick = () => ir(inicioDe(usuario.rol));
+$("#brand").onclick = () => ir(usuario && !esEmpleado() ? inicioDe(usuario.rol) : "#/");
 $("#checkout").onclick = confirmarPedido;
-$("#btnBack").onclick = () => { mostrarVista("#viewMenu"); cargarMenu(); };
+$("#btnBack").onclick = () => { ir("#/"); cargarMenu(); };
 $("#btnCancel").onclick = async (e) => {
   if (!confirmarAccion(e.target)) return;
   try { seguirPedido(await cambiarEstado(e.target.dataset.id, "cancelado")); toast("Pedido cancelado"); }
   catch (err) { toast(err.message); }
 };
 $("#applyCoupon").onclick = () => aplicarCupon($("#couponInput").value);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") { cerrarModales(); abrirCarrito(false); } });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { cerrarVentana(); abrirCarrito(false); } });
 $("#couponInput").onkeydown = (e) => { if (e.key === "Enter") aplicarCupon(e.target.value); };
 let tt; function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2600); }
 
 pintarCarrito(); pintarUsuario(); cargarMenu();
-if (usuario && !esEmpleado()) abrirPanel();
+router();   // muestra la vista que indica la URL (también al recargar con F5)
