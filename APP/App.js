@@ -1,53 +1,141 @@
-/* ====== Datos demo (en producción vienen de la BD vía conexion.sql / API) ====== */
-const IMG = (id) => `https://images.unsplash.com/${id}?w=600&q=70`;
-const restaurantes = [
-  { id: 1, nombre: "Burger House",  emoji: "🍔", foto: IMG("photo-1568901346375-23c9450c58cd") },
-  { id: 2, nombre: "Pizza Piazza",  emoji: "🍕", foto: IMG("photo-1513104890138-7c749659a591") },
-  { id: 3, nombre: "Sabor Criollo", emoji: "🍛", foto: IMG("photo-1512058564366-18510be2db19") },
-];
-const productos = [
-  { id: 1, r: 1, nombre: "Hamburguesa clásica", desc: "Carne 150 g, queso, lechuga y tomate.", precio: 18000, disp: 1, emoji: "🍔", foto: IMG("photo-1568901346375-23c9450c58cd") },
-  { id: 2, r: 1, nombre: "Papas criollas",      desc: "Porción grande con salsas de la casa.", precio: 9000,  disp: 1, emoji: "🍟", foto: IMG("photo-1573080496219-bb080dd4f877") },
-  { id: 3, r: 2, nombre: "Pizza pepperoni",     desc: "Personal de 6 porciones.",              precio: 22000, disp: 1, emoji: "🍕", foto: IMG("photo-1628840042765-356cda07504e") },
-  { id: 4, r: 2, nombre: "Pizza hawaiana",      desc: "Jamón y piña sobre masa artesanal.",    precio: 21000, disp: 0, emoji: "🍍", foto: IMG("photo-1565299624946-b28f40a0ae38") },
-  { id: 5, r: 3, nombre: "Bandeja del día",     desc: "Arroz, fríjoles, carne, plátano y huevo.", precio: 20000, disp: 1, emoji: "🍛", foto: IMG("photo-1512058564366-18510be2db19") },
-  { id: 6, r: 3, nombre: "Sopa de pollo",       desc: "Con papa, yuca y arroz aparte.",        precio: 14000, disp: 1, emoji: "🍲", foto: IMG("photo-1547592166-23ac45744acd") },
-];
-const clientes = [{ id: 1, nombre: "Ana", correo: "ana@centro.com", contrasenia: "1234" }];
-const cupones  = [
-  { id: 1, codigo: "EMPLEADO10", descuento: 0.10, condiciones: "10% de descuento" },
-  { id: 2, codigo: "PROMO5000",  descuento: 5000, condiciones: "$5.000 de descuento" },
-];
+/* =====================================================================
+   FoodCourt Express · Frontend
+   Consume la API REST de backend/main.py (Python + FastAPI). Roles:
+   empleado → menú, carrito y seguimiento · restaurante → panel de pedidos y productos
+   domiciliario → entregas asignadas · admin → panel del restaurante con todos los pedidos
+   Persistencia dual: todo archivo que sube el usuario va a disco y a la tabla `archivos`.
+   ===================================================================== */
 
-/* ====== Estado ====== */
+/* ====== API ====== */
+// Si lo sirve el backend (puerto 3000) usa la misma URL; si lo abres directo o con Live Server, apunta al backend local
+const SERVIDOR = location.port === "3000" ? "" : "http://localhost:3000";
+const API = SERVIDOR + "/api";
+
+async function api(ruta, opciones = {}) {
+  const headers = {};
+  if (!(opciones.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = "Bearer " + token;
+  let res;
+  try { res = await fetch(API + ruta, { ...opciones, headers }); }
+  catch { throw new Error("No hay conexión con el servidor (¿está corriendo python main.py en la carpeta backend?)"); }
+  const data = await res.json().catch(() => ({}));
+   if (res.status === 401 && token) {          // la sesión venció o se cerró en otra parte
+    const donde = location.hash;
+    cerrarSesion(false);
+    if (RUTAS_PRIVADAS[donde.split("/")[1]]) sessionStorage.setItem("destino", donde);
+    toast("Tu sesión terminó, vuelve a iniciar sesión");
+    abrirLogin(true);
+  }
+  if (!res.ok) throw Object.assign(new Error(data.error || data.detail || "Error del servidor"), { campos: data.campos });
+  return data;
+}
+
+/* ====== Utilidades ====== */
 const $ = (s) => document.querySelector(s);
 const money = (n) => "$" + Math.round(n).toLocaleString("es-CO");
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const foto = (ruta) => (ruta ? `${SERVIDOR}/${ruta}` : "");
+const EMOJI = { "Hamburguesas": "🍔", "Pizzería": "🍕", "Comida típica": "🍛" };
+const emojiDe = (rest) => EMOJI[rest?.categoria] || "🍽️";
+const ETIQUETA = { pendiente: "Pendiente", preparando: "En preparación", en_camino: "En camino", entregado: "Entregado", cancelado: "Cancelado" };
+const hora = (f) => (f || "").slice(11, 16);
+// Imagen con respaldo: si no hay foto o no carga, muestra el emoji
+const img = (src, alt, emoji) => src
+  ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" onerror="this.replaceWith('${emoji}')">`
+  : emoji;
+
+/* ====== Estado ====== */
+let restaurantes = [], productos = [];
 let filtro = 0;
 let carrito = {};           // {idProducto: cantidad}
 let cupon = null;
-let cliente = JSON.parse(sessionStorage.getItem("cliente") || "null");
+let token = sessionStorage.getItem("token");
+let usuario = JSON.parse(sessionStorage.getItem("usuario") || "null");
+const esEmpleado = () => !usuario || usuario.rol === "empleado";
+
+/* ====== Rutas (hash) ======
+   Públicas:  #/  ·  #/login  ·  #/registro
+   Privadas:  #/mis-pedidos[/archivos]  ·  #/pedido/:id  (empleado)
+              #/panel[/pestaña]  (restaurante/admin)  ·  #/entregas[/pestaña]  (domiciliario)
+   Una ruta privada sin sesión redirige a #/login y, al entrar, vuelve a donde iba. */
+const RUTAS_PRIVADAS = {
+  "mis-pedidos": ["empleado"], "pedido": ["empleado"],
+  "panel": ["restaurante"], "entregas": ["domiciliario"],
+};
+const inicioDe = (rol) => rol === "empleado" ? "#/mis-pedidos" : rol === "domiciliario" ? "#/entregas" : "#/panel";
+function ir(hash, reemplazar = false) {
+  if (location.hash === hash) return router();
+  if (reemplazar) location.replace(hash); else location.hash = hash;
+}
+async function router() {
+  const [, seccion = "", param] = location.hash.replace(/^#/, "").split("/");
+  const privada = RUTAS_PRIVADAS[seccion];
+  if (privada && !usuario) {                          // sin sesión → al login, recordando el destino
+    sessionStorage.setItem("destino", location.hash);
+    toast("Inicia sesión para continuar");
+    return ir("#/login", true);
+  }
+  if (privada && !privada.includes(usuario.rol) && usuario.rol !== "admin") return ir(inicioDe(usuario.rol), true);
+  if (["login", "registro"].includes(seccion) && usuario) return ir(inicioDe(usuario.rol), true);
+  cerrarModales();
+  switch (seccion) {
+    case "login": mostrarVista("#viewMenu"); return mostrarLogin();
+    case "registro": mostrarVista("#viewMenu"); return mostrarRegistro();
+    case "mis-pedidos": case "panel": case "entregas": pestana = param || "pedidos"; return abrirPanel();
+    case "pedido":
+      try { seguirPedido(await api(`/pedidos/${param}`)); }
+      catch (e) { toast(e.message); ir(inicioDe(usuario.rol), true); }
+      return;
+    default:
+      if (usuario && !esEmpleado()) return ir(inicioDe(usuario.rol), true);
+      mostrarVista("#viewMenu");
+  }
+}
+window.addEventListener("hashchange", router);
+// Cierra una ventana de login/registro: si estaba en su propia ruta, vuelve al inicio
+function cerrarVentana() {
+  pendienteCheckout = false; cerrarModales();
+  if (/^#\/(login|registro)/.test(location.hash)) ir(sessionStorage.getItem("destino") && usuario ? sessionStorage.getItem("destino") : "#/", true);
+}
+
+function mostrarVista(id) {
+  ["#viewMenu", "#viewStatus", "#viewPanel"].forEach((v) => $(v).classList.toggle("active", v === id));
+  if (id !== "#viewStatus") clearInterval(window.timer);
+  if (id !== "#viewPanel") clearInterval(window.timerPanel);
+  window.scrollTo(0, 0);
+}
 
 /* ====== Menú ====== */
+async function cargarMenu() {
+  $("#grid").innerHTML = `<p class="muted">Cargando menú…</p>`;
+  try {
+    [restaurantes, productos] = await Promise.all([api("/restaurantes"), api("/productos")]);
+    pintarFiltros(); pintarMenu(); pintarCarrito();
+  } catch (e) {
+    $("#grid").innerHTML = `<p class="error">${esc(e.message)} <button class="btn ghost" id="retry">Reintentar</button></p>`;
+    $("#retry").onclick = cargarMenu;
+  }
+}
 function pintarFiltros() {
   const chips = [{ id: 0, nombre: "Todos" }, ...restaurantes];
   $("#filters").innerHTML = chips.map(c =>
-    `<button class="chip ${c.id === filtro ? "on" : ""}" data-r="${c.id}">${c.nombre}</button>`).join("");
+    `<button class="chip ${c.id === filtro ? "on" : ""}" data-r="${c.id}">${esc(c.nombre)}</button>`).join("");
 }
 function pintarMenu() {
   const lista = productos.filter(p => !filtro || p.r === filtro);
   $("#grid").innerHTML = lista.map(p => {
-    const r = restaurantes.find(x => x.id === p.r);
-    return `<article class="card ${p.disp ? "" : "off"}">
-      <div class="photo"><img src="${p.foto}" alt="${p.nombre}" loading="lazy" onerror="this.replaceWith('${p.emoji}')"></div>
-      <div class="rest-logo" title="${r.nombre}"><img src="${r.foto}" alt="${r.nombre}" onerror="this.replaceWith('${r.emoji}')"></div>
+    const r = restaurantes.find(x => x.id === p.r), e = emojiDe(r);
+    return `<article class="card ${p.disponible ? "" : "off"}">
+      <div class="photo">${img(foto(p.foto), p.nombre, e)}</div>
+      <div class="rest-logo" title="${esc(r.nombre)}">${img(foto(r.logo), r.nombre, e)}</div>
       <div class="body">
-        <span class="rest-name">${r.nombre}</span>
-        <h3>${p.nombre}</h3>
-        <p>${p.desc}</p>
+        <span class="rest-name">${esc(r.nombre)} · Local ${esc(r.local)}</span>
+        <h3>${esc(p.nombre)}</h3>
+        <p>${esc(p.descripcion)}</p>
         <div class="foot"><span class="price">${money(p.precio)}</span>
-          <button class="btn" data-add="${p.id}">${p.disp ? "Agregar" : "Agotado"}</button></div>
+          <button class="btn" data-add="${p.id}">${p.disponible ? "Agregar" : "Agotado"}</button></div>
       </div></article>`;
-  }).join("");
+  }).join("") || `<p class="muted">No hay productos para mostrar.</p>`;
 }
 
 /* ====== Carrito ====== */
@@ -56,100 +144,596 @@ function restauranteDelCarrito() {
   return ids.length ? productos.find(p => p.id == ids[0]).r : null;
 }
 function agregar(id) {
+  if (!esEmpleado()) return toast("Solo los empleados pueden hacer pedidos");
   const p = productos.find(x => x.id === id);
   const rc = restauranteDelCarrito();
-  // Regla de negocio 1: un pedido = un solo restaurante
+  // Regla de negocio: un pedido = un solo restaurante (también lo validan el backend y la BD)
   if (rc && rc !== p.r) return toast("Tu pedido solo puede ser de un restaurante. Vacía el carrito para cambiar.");
   carrito[id] = (carrito[id] || 0) + 1;
   pintarCarrito(); toast(`${p.nombre} agregado`);
 }
 function totales() {
   const sub = Object.entries(carrito).reduce((s, [id, q]) => s + productos.find(p => p.id == id).precio * q, 0);
-  let desc = 0;
-  if (cupon) desc = cupon.descuento < 1 ? sub * cupon.descuento : Math.min(cupon.descuento, sub);
+  const aplica = cupon && (!cupon.restaurante || cupon.restaurante === restauranteDelCarrito());
+  const desc = !aplica ? 0 : cupon.tipo === "porcentaje" ? Math.round(sub * cupon.valor / 100) : Math.min(cupon.valor, sub);
   return { sub, desc, total: sub - desc };
 }
 function pintarCarrito() {
   const ids = Object.keys(carrito);
+  if (!ids.length && cupon) { cupon = null; $("#couponMsg").textContent = ""; }
   $("#cartCount").textContent = ids.reduce((s, i) => s + carrito[i], 0);
   $("#cartItems").innerHTML = ids.length ? ids.map(id => {
     const p = productos.find(x => x.id == id);
-    return `<div class="item"><div><b>${p.nombre}</b><br><small>${money(p.precio)}</small></div>
+    return `<div class="item"><div><b>${esc(p.nombre)}</b><br><small>${money(p.precio)}</small></div>
       <div class="qty"><button data-dec="${id}">−</button><b>${carrito[id]}</b><button data-inc="${id}">+</button></div></div>`;
   }).join("") : `<p class="muted">Tu carrito está vacío.</p>`;
   const t = totales();
   $("#tSub").textContent = money(t.sub); $("#tDisc").textContent = "-" + money(t.desc); $("#tTotal").textContent = money(t.total);
 }
-const abrirCarrito = (v) => { $("#cart").classList.toggle("open", v); $("#overlay").classList.toggle("on", v); };
-
-/* ====== Login (ventana emergente) ====== */
-const abrirLogin = (v) => $("#loginModal").classList.toggle("open", v);
-function pintarUsuario() {
-  $("#btnUser").textContent = cliente ? `👤 ${cliente.nombre} · Salir` : "Iniciar sesión";
+async function abrirCarrito(v) {
+  $("#cart").classList.toggle("open", v); $("#overlay").classList.toggle("on", v);
+  if (v) pintarMisCupones();
 }
-$("#loginForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  // En producción: SELECT ... FROM clientes WHERE correo=? AND contrasenia=? (ver conexion.sql)
-  const u = clientes.find(c => c.correo === $("#email").value.trim() && c.contrasenia === $("#password").value);
-  if (!u) { $("#loginError").textContent = "Correo o contraseña incorrectos."; return; }
-  cliente = u; sessionStorage.setItem("cliente", JSON.stringify(u));
-  $("#loginError").textContent = ""; abrirLogin(false); pintarUsuario(); toast(`¡Hola, ${u.nombre}!`);
-  if (pendienteCheckout) { pendienteCheckout = false; confirmarPedido(); }
+// Cupones asignados al empleado (se pueden tocar para aplicarlos)
+async function pintarMisCupones() {
+  $("#myCoupons").innerHTML = "";
+  if (!usuario || usuario.rol !== "empleado") return;
+  try {
+    const lista = await api("/cupones");
+    $("#myCoupons").innerHTML = lista.length ? `<small class="muted">Tus cupones:</small> ` + lista.map(c =>
+      `<button class="chip mini" data-cupon="${esc(c.codigo)}" title="${esc(c.condiciones)}">🎟️ ${esc(c.codigo)}</button>`).join("") : "";
+  } catch { /* no es crítico */ }
+}
+async function aplicarCupon(codigo) {
+  codigo = codigo.trim();
+  if (!codigo) { cupon = null; $("#couponMsg").textContent = ""; return pintarCarrito(); }
+  if (!usuario) { toast("Inicia sesión para usar cupones"); return abrirLogin(true); }
+  const rc = restauranteDelCarrito();
+  try {
+    cupon = await api(`/cupones/validar?codigo=${encodeURIComponent(codigo)}${rc ? "&restaurante=" + rc : ""}`);
+    $("#couponInput").value = cupon.codigo;
+    $("#couponMsg").textContent = `✅ ${cupon.condiciones}`;
+  } catch (e) {
+    cupon = null; $("#couponMsg").textContent = "❌ " + e.message;
+  }
+  pintarCarrito();
+}
+
+/* ====== Validación de formularios ======
+   Cada regla devuelve el mensaje de error, o "" si el valor está bien.
+   Los errores se muestran debajo de cada campo (también los que responde el backend). */
+const SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' -]{2,100}$/;
+const MAX_ARCHIVO = 5 * 1024 * 1024;                       // 5 MB, igual que el backend
+const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/webp"];
+// Valida una imagen antes de enviarla (el backend la vuelve a validar)
+const errorArchivo = (a) => !a ? "" : !TIPOS_IMAGEN.includes(a.type) ? "Solo imágenes JPG, PNG o WebP"
+  : a.size > MAX_ARCHIVO ? "El archivo supera los 5 MB" : "";
+const REGLAS = {
+  correo: (v) => !v ? "Escribe tu correo" : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) ? "Escribe un correo válido" : "",
+  contrasenia: (v, f) => !v ? "Escribe tu contraseña"
+    : f.id === "registroForm" && (v.length < 8 || !/[A-Za-z]/.test(v) || !/\d/.test(v)) ? "Mínimo 8 caracteres, con letras y números" : "",
+  confirmar: (v, f) => !v ? "Repite la contraseña" : v !== f.contrasenia.value ? "Las contraseñas no coinciden" : "",
+  primer_nombre: (v) => !v ? "Escribe tu nombre" : !SOLO_LETRAS.test(v) ? "Solo letras" : "",
+  segundo_nombre: (v) => v && !SOLO_LETRAS.test(v) ? "Solo letras" : "",
+  primer_apellido: (v) => !v ? "Escribe tu apellido" : !SOLO_LETRAS.test(v) ? "Solo letras" : "",
+  segundo_apellido: (v) => v && !SOLO_LETRAS.test(v) ? "Solo letras" : "",
+  documento: (v) => !v ? "Escribe tu documento" : !/^\d{6,12}$/.test(v) ? "Entre 6 y 12 números, sin puntos" : "",
+  telefono: (v) => !v ? "Escribe tu celular" : !/^3\d{9}$/.test(v) ? "Celular de 10 dígitos que empiece por 3" : "",
+  id_centro: (v) => !v ? "Elige tu centro comercial" : "",
+  local_trabajo: (v) => v.length < 3 ? "Indica dónde trabajas (ej. Falabella, piso 1)" : "",
+  punto_entrega: (v) => v.length < 3 ? "Indica dónde te lo llevamos (ej. Falabella, piso 1)" : "",
+  nombre_producto: (v) => v.length < 2 ? "Escribe el nombre del producto" : v.length > 150 ? "Máximo 150 caracteres" : "",
+  precio: (v) => !v ? "Escribe el precio" : !(Number(v) > 0) ? "El precio debe ser mayor que 0" : "",
+  carne: (v, f) => errorArchivo(f.carne?.files[0]),         // opcional, pero si lo suben debe ser válido
+};
+function mostrarError(input, mensaje) {
+  const campo = input.closest(".field");
+  campo.classList.toggle("invalid", !!mensaje);
+  campo.classList.toggle("valid", !mensaje && !!input.value.trim());
+  input.setAttribute("aria-invalid", mensaje ? "true" : "false");
+  campo.querySelector(".field-error").textContent = mensaje || "";
+}
+function validarCampo(input) {
+  const regla = REGLAS[input.name];
+  const mensaje = regla ? regla(input.value.trim(), input.form || input.closest("form, aside")) : "";
+  mostrarError(input, mensaje);
+  return !mensaje;
+}
+// Valida todos los campos del contenedor; enfoca el primero con error
+function validarTodo(contenedor) {
+  const inputs = [...contenedor.querySelectorAll("[name]")].filter(i => i.closest(".field"));
+  const malos = inputs.filter(i => { i.dataset.tocado = "1"; return !validarCampo(i); });
+  if (malos.length) malos[0].focus();
+  return !malos.length;
+}
+// Pinta los errores por campo que devuelve el backend
+function erroresDelServidor(contenedor, campos) {
+  let primero = null;
+  for (const [nombre, mensaje] of Object.entries(campos || {})) {
+    const input = contenedor.querySelector(`[name="${nombre}"]`);
+    if (input) { mostrarError(input, mensaje); primero ??= input; }
+  }
+  primero?.focus();
+  return !!primero;
+}
+function limpiarErrores(contenedor) {
+  contenedor.querySelectorAll(".field").forEach(c => c.classList.remove("invalid", "valid"));
+  contenedor.querySelectorAll(".field-error").forEach(e => (e.textContent = ""));
+  contenedor.querySelectorAll("[data-tocado]").forEach(i => delete i.dataset.tocado);
+}
+// Valida al salir del campo, y mientras escribe si ya se había equivocado
+document.addEventListener("focusout", (e) => {
+  if (e.target.matches?.(".field [name]") && e.target.value) { e.target.dataset.tocado = "1"; validarCampo(e.target); }
+});
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (!t.matches?.(".field [name]")) return;
+  if (["documento", "telefono"].includes(t.name)) t.value = t.value.replace(/\D/g, "");
+  if (t.dataset.tocado) validarCampo(t);
+  if (t.name === "contrasenia" && t.form?.confirmar?.dataset.tocado) validarCampo(t.form.confirmar);
+});
+// Los campos de archivo no lanzan "input" en todos los navegadores: se validan al elegir el archivo
+document.addEventListener("change", (e) => {
+  if (e.target.type === "file" && e.target.matches?.(".field [name]")) { e.target.dataset.tocado = "1"; validarCampo(e.target); }
 });
 
-/* ====== Pedido y landing "en preparación" ====== */
-let pendienteCheckout = false;
-function confirmarPedido() {
-  if (!Object.keys(carrito).length) return toast("Agrega productos primero");
-  if (!cliente) { pendienteCheckout = true; abrirLogin(true); return; }   // exige login
-  const dir = $("#address").value.trim();
-  if (!dir) return toast("Indica el punto de entrega");
-  const t = totales();
-  const pedido = { id: Math.floor(Math.random() * 9000 + 1000), direccion: dir, ...t,
-    items: Object.entries(carrito).map(([id, q]) => ({ ...productos.find(p => p.id == id), q })) };
-  mostrarEstado(pedido);
-  carrito = {}; cupon = null; $("#couponInput").value = ""; $("#couponMsg").textContent = "";
-  pintarCarrito(); abrirCarrito(false);
+/* ====== Sesión ====== */
+function cerrarModales() {
+  document.querySelectorAll(".modal.open").forEach(m => m.classList.remove("open"));
 }
-function mostrarEstado(p) {
-  $("#viewMenu").classList.remove("active"); $("#viewStatus").classList.add("active");
-  window.scrollTo(0, 0);
-  $("#statusInfo").textContent = `Pedido #${p.id} · Entrega en: ${p.direccion}`;
-  $("#statusSummary").innerHTML = p.items.map(i => `<div>${i.q} × ${i.nombre}</div>`).join("") +
-    `<div><b>Total: ${money(p.total)}</b></div>`;
-  // Flujo: pendiente → preparando → en camino → entregado (simulado)
-  const flujo = ["pendiente", "preparando", "en camino", "entregado"];
-  let n = 1;
-  const marcar = () => document.querySelectorAll("#steps li").forEach((li, i) => {
-    li.className = i < n ? "done" : i === n ? "now" : "";
+function abrirLogin(v) {
+  if (!v) return cerrarModales();
+  ir("#/login");
+}
+function abrirRegistro() { ir("#/registro"); }
+function mostrarLogin() {
+  cerrarModales();
+  limpiarErrores($("#loginForm")); $("#loginError").textContent = "";
+  $("#loginModal").classList.add("open");
+  setTimeout(() => $("#email").focus(), 50);
+}
+async function mostrarRegistro() {
+  cerrarModales();
+  const f = $("#registroForm");
+  limpiarErrores(f); $("#registroError").textContent = "";
+  $("#registroModal").classList.add("open");
+  setTimeout(() => f.primer_nombre.focus(), 50);
+  try {
+    const centros = await api("/centros");
+    f.id_centro.innerHTML = (centros.length > 1 ? `<option value="">Elige…</option>` : "") +
+      centros.map(c => `<option value="${c.id}">${esc(c.nombre)} · ${esc(c.ciudad)}</option>`).join("");
+  } catch (e) { $("#registroError").textContent = e.message; }
+}
+function iniciarSesion(r) {
+  token = r.token; usuario = r.usuario;
+  sessionStorage.setItem("token", token); sessionStorage.setItem("usuario", JSON.stringify(usuario));
+  cerrarModales(); pintarUsuario(); toast(`¡Hola, ${usuario.nombre}!`);
+  if (usuario.rol !== "empleado") { carrito = {}; pintarCarrito(); }
+  const destino = sessionStorage.getItem("destino");
+  sessionStorage.removeItem("destino");
+  if (usuario.rol === "empleado" && pendienteCheckout) {   // venía de confirmar el carrito
+    pendienteCheckout = false; ir("#/", true); return confirmarPedido();
+  }
+  ir(destino || (usuario.rol === "empleado" ? "#/" : inicioDe(usuario.rol)), true);
+}
+function pintarUsuario() {
+  $("#btnUser").textContent = usuario ? `👤 ${usuario.nombre} · Salir` : "Iniciar sesión";
+  $("#btnCart").hidden = !esEmpleado();
+  $("#btnPedidos").hidden = !usuario;
+  $("#btnPedidos").textContent = !usuario ? "" : usuario.rol === "empleado" ? "📋 Mis pedidos"
+    : usuario.rol === "domiciliario" ? "🛵 Mis entregas" : "🍳 Panel";
+}
+function cerrarSesion(avisar = true) {
+  const tokenActual = token;
+  token = null; usuario = null; cupon = null;
+  sessionStorage.removeItem("token"); sessionStorage.removeItem("usuario");
+  if (tokenActual) fetch(API + "/logout", { method: "POST", headers: { Authorization: "Bearer " + tokenActual } }).catch(() => {});
+  sessionStorage.removeItem("destino");
+  pintarUsuario(); pintarCarrito(); ir("#/", true);
+  if (avisar) toast("Sesión cerrada");
+}
+$("#loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $("#loginError").textContent = "";
+  if (!validarTodo(f)) return;
+  const boton = f.querySelector("[type=submit]");
+  boton.disabled = true; boton.textContent = "Entrando…";
+  try {
+    const r = await api("/login", { method: "POST",
+      body: JSON.stringify({ correo: f.correo.value.trim(), contrasenia: f.contrasenia.value }) });
+    f.contrasenia.value = ""; limpiarErrores(f);
+    iniciarSesion(r);
+  } catch (err) {
+    if (!erroresDelServidor(f, err.campos)) $("#loginError").textContent = err.message;
+  } finally { boton.disabled = false; boton.textContent = "Entrar"; }
+});
+$("#registroForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $("#registroError").textContent = "";
+  if (!validarTodo(f)) { $("#registroError").textContent = "Revisa los campos marcados en rojo"; return; }
+  const carne = f.carne.files[0];                           // se guarda antes de f.reset()
+  const datos = Object.fromEntries(new FormData(f));
+  delete datos.confirmar; delete datos.carne;               // el carné no viaja en el JSON del registro
+  datos.id_centro = Number(datos.id_centro);
+  const boton = f.querySelector("[type=submit]");
+  boton.disabled = true; boton.textContent = "Creando cuenta…";
+  try {
+    const r = await api("/registro", { method: "POST", body: JSON.stringify(datos) });
+    f.reset(); limpiarErrores(f);
+    iniciarSesion(r);
+    toast(`¡Bienvenido, ${r.usuario.nombre}! Tu cuenta quedó creada`);
+    // Persistencia dual del carné: ya hay sesión, se sube a disco + tabla archivos
+    if (carne) subirArchivo("carne_empleado", carne)
+      .then(() => toast("Carné guardado"))
+      .catch((err) => toast("Cuenta creada, pero el carné no se pudo subir: " + err.message));
+  } catch (err) {
+    erroresDelServidor(f, err.campos);
+    $("#registroError").textContent = err.message;
+  } finally { boton.disabled = false; boton.textContent = "Crear cuenta"; }
+});
+
+/* ====== Pedido y seguimiento ====== */
+let pendienteCheckout = false;
+async function confirmarPedido() {
+  if (!Object.keys(carrito).length) return toast("Agrega productos primero");
+  if (!usuario) { pendienteCheckout = true; abrirLogin(true); return; }   // exige login
+  $("#address").dataset.tocado = "1";
+  if (!validarCampo($("#address"))) { $("#address").focus(); return toast("Indica el punto de entrega"); }
+  const dir = $("#address").value.trim();
+  const boton = $("#checkout");
+  boton.disabled = true; boton.textContent = "Enviando…";
+  try {
+    const pedido = await api("/pedidos", { method: "POST", body: JSON.stringify({
+      punto_entrega: dir, cupon: cupon?.codigo,
+      items: Object.entries(carrito).map(([id, cantidad]) => ({ id: +id, cantidad })) }) });
+    carrito = {}; cupon = null; $("#couponInput").value = ""; $("#couponMsg").textContent = "";
+    pintarCarrito(); abrirCarrito(false);
+    ir(`#/pedido/${pedido.id}`);
+  } catch (e) {
+    if (!erroresDelServidor($("#cart"), e.campos)) toast(e.message);
+    if (/agotado/i.test(e.message)) cargarMenu();
+  } finally { boton.disabled = false; boton.textContent = "Confirmar pedido"; }
+}
+
+const FLUJO = ["pendiente", "preparando", "en_camino", "entregado"];
+const TITULOS = {
+  pendiente: ["🧾", "¡Recibimos tu pedido!"], preparando: ["👩‍🍳", "¡Tu producto está en preparación!"],
+  en_camino: ["🚚", "¡Tu pedido va en camino!"], entregado: ["🎉", "¡Pedido entregado!"], cancelado: ["❌", "Pedido cancelado"],
+};
+function pintarSeguimiento(p) {
+  const n = FLUJO.indexOf(p.estado);
+  document.querySelectorAll("#steps li").forEach((li, i) => {
+    li.className = p.estado === "cancelado" ? "" : i < n || p.estado === "entregado" ? "done" : i === n ? "now" : "";
   });
-  marcar(); clearInterval(window.timer);
-  window.timer = setInterval(() => { if (n < flujo.length - 1) { n++; marcar(); } else { n = 4; marcar(); clearInterval(window.timer); } }, 8000);
+  $("#statusIcon").textContent = TITULOS[p.estado][0];
+  $("#statusTitle").textContent = TITULOS[p.estado][1];
+  $("#statusInfo").textContent = `Pedido #${p.id} · ${p.restaurante} · Entrega en: ${p.punto_entrega}`;
+  $("#statusExtra").textContent =
+    p.estado === "entregado" ? `Llegó en ${p.tiempo_real ?? "–"} min${p.domiciliario ? " · Lo entregó " + p.domiciliario : ""}`
+    : p.estado === "cancelado" ? "Este pedido fue cancelado."
+    : `Tiempo estimado: ${p.tiempo_estimado} min${p.domiciliario ? " · Domiciliario: " + p.domiciliario : ""}`;
+  $("#statusSummary").innerHTML = p.items.map(i => `<div>${i.cantidad} × ${esc(i.nombre)} <span class="muted">${money(i.subtotal)}</span></div>`).join("") +
+    (p.descuento ? `<div>Descuento${p.cupon ? " (" + esc(p.cupon) + ")" : ""}: -${money(p.descuento)}</div>` : "") +
+    `<div><b>Total: ${money(p.total)}</b></div>`;
+  $("#btnCancel").hidden = p.estado !== "pendiente";
+  $("#btnCancel").dataset.id = p.id;
+}
+function seguirPedido(p) {
+  mostrarVista("#viewStatus");
+  pintarSeguimiento(p);
+  clearInterval(window.timer);
+  if (["entregado", "cancelado"].includes(p.estado)) return;
+  // Consulta el estado real del pedido en el servidor cada 4 s
+  window.timer = setInterval(async () => {
+    try {
+      const nuevo = await api(`/pedidos/${p.id}`);
+      if (nuevo.estado !== p.estado && nuevo.estado === "entregado") toast("¡Tu pedido fue entregado! 🎉");
+      p = nuevo; pintarSeguimiento(p);
+      if (["entregado", "cancelado"].includes(p.estado)) clearInterval(window.timer);
+    } catch { /* reintenta en el siguiente ciclo */ }
+  }, 4000);
+}
+async function cambiarEstado(id, estado) {
+  return api(`/pedidos/${id}/estado`, { method: "PATCH", body: JSON.stringify({ estado }) });
+}
+
+/* ====== Archivos (persistencia dual: disco + tabla archivos) ====== */
+// Qué categorías puede subir cada rol desde "Mis archivos".
+// foto_producto y evidencia_entrega se suben desde sus propias pantallas (Productos y Entregas).
+const SUBIDAS = {
+  empleado: [["foto_perfil", "Foto de perfil"], ["carne_empleado", "Carné del centro comercial"]],
+  restaurante: [["foto_perfil", "Foto de perfil"], ["logo_restaurante", "Logo del restaurante"]],
+  domiciliario: [["foto_perfil", "Foto de perfil"]],
+  admin: [["foto_perfil", "Foto de perfil"]],
+};
+const NOMBRE_CAT = { foto_producto: "Foto de producto", logo_restaurante: "Logo", foto_perfil: "Foto de perfil",
+  carne_empleado: "Carné", evidencia_entrega: "Evidencia de entrega" };
+const pesoLegible = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+
+function subirArchivo(categoria, archivo) {
+  const fd = new FormData(); fd.append("categoria", categoria); fd.append("archivo", archivo);
+  return api("/archivos", { method: "POST", body: fd });
+}
+// Los archivos privados necesitan el token: se piden con fetch y se abren desde un blob
+async function abrirArchivo(id, descargar, nombre) {
+  const res = await fetch(`${API}/archivos/${id}/descargar${descargar ? "" : "?ver=1"}`, { headers: { Authorization: "Bearer " + token } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "No se pudo abrir el archivo");
+  }
+  const url = URL.createObjectURL(await res.blob());
+  if (descargar) { const a = document.createElement("a"); a.href = url; a.download = nombre || "archivo"; a.click(); }
+  else window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+function pintarArchivos(lista) {
+  const opciones = (SUBIDAS[usuario.rol] || []).map(([k, t]) => `<option value="${k}">${t}</option>`).join("");
+  const form = `<form id="formArchivo" class="order prod-new" novalidate>
+    <header><b>⬆️ Subir archivo</b></header>
+    <label class="field">Tipo
+      <select name="categoria">${opciones}</select>
+      <small class="field-error"></small>
+    </label>
+    <label class="field">Imagen (JPG, PNG o WebP, máximo 5 MB)
+      <input name="archivo" type="file" accept="image/jpeg,image/png,image/webp">
+      <small class="field-error"></small>
+    </label>
+    <div class="order-actions"><button class="btn" type="submit">Subir</button></div>
+  </form>`;
+  return form + (lista.length ? lista.map(a => `<article class="order">
+    <header><b>${esc(a.nombre_original)}</b><span class="estado preparando">${esc(NOMBRE_CAT[a.categoria] || a.categoria)}</span></header>
+    <div class="order-meta">
+      <span>📦 ${pesoLegible(a.peso_bytes)} · ${esc(a.tipo_mime)}</span>
+      <span>🕒 ${esc(String(a.fecha_subida).slice(0, 16).replace("T", " "))}</span>
+      ${usuario.rol === "admin" ? `<span>👤 Autor #${a.autor}</span>` : ""}
+    </div>
+    <div class="order-actions">
+      <button class="btn ghost" data-ver-archivo="${a.id}">👁️ Ver</button>
+      <button class="btn ghost" data-bajar="${a.id}" data-nombre="${esc(a.nombre_original)}">⬇️ Descargar</button>
+      <button class="btn ghost danger" data-borrar-archivo="${a.id}">🗑️ Eliminar</button>
+    </div></article>`).join("") : `<p class="muted vacio">Todavía no has subido archivos.</p>`);
+}
+
+/* ====== Paneles ====== */
+let pestana = "pedidos";
+let ultimoPanel = "";
+function abrirPanel() {
+  mostrarVista("#viewPanel");
+  const rol = usuario.rol;
+  $("#panelTitle").textContent = rol === "empleado" ? "Mis pedidos" : rol === "domiciliario" ? "Mis entregas" : "Panel del restaurante";
+  $("#panelSub").textContent = rol === "empleado" ? "Toca un pedido para ver su seguimiento."
+    : rol === "domiciliario" ? "Pedidos que te asignaron. Al entregar, sube la foto de evidencia."
+    : "Prepara, asigna domiciliario y despacha los pedidos.";
+  const tabs = rol === "restaurante" || rol === "admin"
+    ? [["pedidos", "Pedidos activos"], ["historial", "Historial"], ["productos", "Productos"], ["archivos", "Mis archivos"]]
+    : rol === "domiciliario" ? [["pedidos", "Por entregar"], ["historial", "Entregados"], ["archivos", "Mis archivos"]]
+    : [["pedidos", "Mis pedidos"], ["archivos", "Mis archivos"]];
+  if (!tabs.some(t => t[0] === pestana)) pestana = "pedidos";
+  $("#panelTabs").innerHTML = tabs.map(([k, t]) => `<button class="chip ${k === pestana ? "on" : ""}" data-tab="${k}">${t}</button>`).join("");
+  ultimoPanel = "";
+  cargarPanel();
+  clearInterval(window.timerPanel);
+  window.timerPanel = setInterval(() => cargarPanel(true), 5000);
+}
+async function cargarPanel(silencioso = false) {
+  // No refresca mientras el usuario está eligiendo un domiciliario o una foto
+  if (silencioso && document.activeElement?.closest("#panelBody select, #panelBody input")) return;
+  if (!silencioso) $("#panelBody").innerHTML = `<p class="muted">Cargando…</p>`;
+  try {
+    let html;
+    if (pestana === "archivos") {
+      if (silencioso) return;                       // el formulario de subida no se refresca solo
+      html = pintarArchivos(await api("/archivos"));
+    } else if (pestana === "productos") {
+      if (silencioso) return;
+      html = pintarProductosPanel(await api("/mis-productos"));
+    } else {
+      const activos = pestana === "pedidos" && usuario.rol !== "empleado";
+      let lista = await api("/pedidos" + (activos ? "?activos=1" : ""));
+      if (pestana === "historial") lista = lista.filter(p => ["entregado", "cancelado"].includes(p.estado));
+      const repartidores = activos && usuario.rol !== "domiciliario" && lista.some(p => !p.id_domiciliario && p.estado !== "cancelado")
+        ? await api("/domiciliarios/disponibles") : [];
+      html = lista.length ? lista.map(p => tarjetaPedido(p, repartidores)).join("")
+        : `<p class="muted vacio">${pestana === "historial" ? "Todavía no hay pedidos terminados." : "No hay pedidos por ahora. 🎉"}</p>`;
+    }
+    if (html === ultimoPanel) return;
+    ultimoPanel = html; $("#panelBody").innerHTML = html;
+  } catch (e) {
+    if (!silencioso) $("#panelBody").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+function tarjetaPedido(p, repartidores) {
+  const rol = usuario.rol, gestiona = rol === "restaurante" || rol === "admin";
+  let acciones = "";
+  if (gestiona && p.estado === "pendiente")
+    acciones += `<button class="btn" data-estado="preparando" data-id="${p.id}">👩‍🍳 Empezar a preparar</button>`;
+  if (gestiona && ["pendiente", "preparando"].includes(p.estado) && !p.id_domiciliario)
+    acciones += repartidores.length
+      ? `<select data-dom-select="${p.id}">${repartidores.map(d => `<option value="${d.id}">${esc(d.nombre)} (${esc(d.tipo_vehiculo.replace("_", " "))})</option>`).join("")}</select>
+         <button class="btn ghost" data-asignar="${p.id}">Asignar</button>`
+      : `<span class="muted small">No hay domiciliarios disponibles</span>`;
+  if (gestiona && p.estado === "preparando" && p.id_domiciliario)
+    acciones += `<button class="btn" data-estado="en_camino" data-id="${p.id}">🚚 Despachar</button>`;
+  if (gestiona && ["pendiente", "preparando"].includes(p.estado))
+    acciones += `<button class="btn ghost danger" data-estado="cancelado" data-id="${p.id}">Cancelar</button>`;
+  if (rol === "domiciliario" && p.estado === "en_camino")
+    acciones += `<label class="file-btn">📷 Foto de entrega<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" data-evidencia="${p.id}"></label>
+      <button class="btn" data-entregar="${p.id}">✅ Marcar entregado</button>`;
+
+  return `<article class="order ${rol === "empleado" ? "clickable" : ""}" ${rol === "empleado" ? `data-ver="${p.id}"` : ""}>
+    <header><b>Pedido #${p.id}</b><span class="estado ${p.estado}">${ETIQUETA[p.estado]}</span></header>
+    <div class="order-meta">
+      ${rol === "empleado" ? `<span>🍽️ ${esc(p.restaurante)}</span>` : `<span>👤 ${esc(p.empleado)} · ${esc(p.telefono_empleado)}</span>`}
+      <span>📍 ${esc(p.punto_entrega)}</span>
+      <span>🕒 ${p.fecha.slice(0, 10)} ${hora(p.fecha)}${p.tiempo_real != null ? ` · llegó en ${p.tiempo_real} min` : ` · estimado ${p.tiempo_estimado} min`}</span>
+      ${p.domiciliario ? `<span>🛵 ${esc(p.domiciliario)}</span>` : ""}
+    </div>
+    <ul class="order-items">${p.items.map(i => `<li>${i.cantidad} × ${esc(i.nombre)}</li>`).join("")}</ul>
+    <div class="order-foot"><b>${money(p.total)}</b>${p.evidencia ? ` <a href="${esc(foto(p.evidencia))}" target="_blank" rel="noopener">Ver foto de entrega</a>` : ""}</div>
+    ${acciones ? `<div class="order-actions">${acciones}</div>` : ""}
+  </article>`;
+}
+function formNuevoProducto() {
+  return `<form id="formProducto" class="order prod-new" novalidate>
+    <header><b>➕ Nuevo producto</b></header>
+    <label class="field">Nombre
+      <input name="nombre_producto" maxlength="150" placeholder="Ej. Malteada de fresa">
+      <small class="field-error"></small>
+    </label>
+    <label class="field">Descripción
+      <input name="descripcion" maxlength="255" placeholder="Ej. 400 ml, con crema">
+      <small class="field-error"></small>
+    </label>
+    <label class="field">Precio
+      <input name="precio" type="number" min="1" step="100" inputmode="numeric" placeholder="12000">
+      <small class="field-error"></small>
+    </label>
+    <div class="order-actions"><button class="btn" type="submit">Crear producto</button></div>
+  </form>`;
+}
+function pintarProductosPanel(lista) {
+  if (!lista.length) return formNuevoProducto() + `<p class="muted vacio">Tu restaurante todavía no tiene productos.</p>`;
+  return formNuevoProducto() + lista.map(p => {
+    const r = restaurantes.find(x => x.id === p.r);
+    return `<article class="order prod-row">
+      <div class="prod-thumb">${img(foto(p.foto), p.nombre, emojiDe(r))}</div>
+      <div class="prod-info"><b>${esc(p.nombre)}</b><span class="muted small">${money(p.precio)}</span></div>
+      <div class="order-actions">
+        <button class="btn ${p.disponible ? "ghost" : ""}" data-toggle="${p.id}" data-disp="${p.disponible ? 0 : 1}">${p.disponible ? "Marcar agotado" : "Marcar disponible"}</button>
+        <label class="file-btn">📷 Cambiar foto<input type="file" accept="image/jpeg,image/png,image/webp" data-foto="${p.id}"></label>
+        <button class="btn ghost danger" data-eliminar="${p.id}">🗑️ Eliminar</button>
+      </div></article>`;
+  }).join("");
+}
+async function accionPanel(fn, okMsg) {
+  try { await fn(); if (okMsg) toast(okMsg); }
+  catch (e) { toast(e.message); }
+  ultimoPanel = ""; cargarPanel(true);
 }
 
 /* ====== Eventos ====== */
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("button, [data-ver]") || e.target;
+  const d = t.dataset || {};
+  if (d.r !== undefined && t.classList.contains("chip")) { filtro = +d.r; pintarFiltros(); pintarMenu(); }
+  if (d.add) agregar(+d.add);
+  if (d.inc) { carrito[d.inc]++; pintarCarrito(); }
+  if (d.dec) { if (--carrito[d.dec] <= 0) delete carrito[d.dec]; pintarCarrito(); }
+  if (d.cupon) aplicarCupon(d.cupon);
+  if (d.tab) ir(`${inicioDe(usuario.rol)}/${d.tab}`);
+  if (d.ver) ir(`#/pedido/${d.ver}`);
+  if (d.estado && d.id) {
+    if (d.estado === "cancelado" && !confirmarAccion(t)) return;
+    accionPanel(() => cambiarEstado(d.id, d.estado), `Pedido #${d.id}: ${ETIQUETA[d.estado].toLowerCase()}`);
+  }
+  if (d.asignar) {
+    const id_domiciliario = +$(`[data-dom-select="${d.asignar}"]`).value;
+    accionPanel(() => api(`/pedidos/${d.asignar}/domiciliario`, { method: "PATCH", body: JSON.stringify({ id_domiciliario }) }), "Domiciliario asignado");
+  }
+  if (d.entregar) {
+    const archivo = $(`[data-evidencia="${d.entregar}"]`).files[0];
+    const problema = errorArchivo(archivo);
+    if (problema) return toast(problema);
+    if (!archivo && !confirmarAccion(t, "¿Entregar sin foto?")) return;
+    const fd = new FormData(); if (archivo) fd.append("archivo", archivo);
+    accionPanel(() => api(`/pedidos/${d.entregar}/entregar`, { method: "POST", body: fd }), "¡Pedido entregado!");
+  }
+  if (d.eliminar) {
+    if (!confirmarAccion(t)) return;
+    accionPanel(() => api(`/productos/${d.eliminar}`, { method: "DELETE" }), "Producto eliminado")
+      .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
+  }
+  if (d.toggle) accionPanel(() => api(`/productos/${d.toggle}`, { method: "PATCH", body: JSON.stringify({ disponible: d.disp === "1" }) }))
+    .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
+  // Archivos: ver, descargar y eliminar (persistencia dual)
+  if (d.verArchivo) abrirArchivo(d.verArchivo, false).catch((err) => toast(err.message));
+  if (d.bajar) abrirArchivo(d.bajar, true, d.nombre).catch((err) => toast(err.message));
+  if (d.borrarArchivo) {
+    if (!confirmarAccion(t)) return;
+    accionPanel(() => api(`/archivos/${d.borrarArchivo}`, { method: "DELETE" }), "Archivo eliminado");
+  }
+  if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) cerrarVentana();
+  if (t.hasAttribute?.("data-ir-registro")) abrirRegistro();
+  if (t.hasAttribute?.("data-ir-login")) abrirLogin(true);
+});
+// Confirmación en dos toques (sin ventanas emergentes del navegador)
+function confirmarAccion(boton, texto = "¿Seguro? Toca otra vez") {
+  if (boton.dataset.confirmado) return true;
+  const original = boton.textContent;
+  boton.dataset.confirmado = "1"; boton.textContent = texto;
+  setTimeout(() => { delete boton.dataset.confirmado; boton.textContent = original; }, 3000);
+  return false;
+}
+// Crear producto (POST /api/mis-productos)
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "formProducto") return;
+  e.preventDefault();
+  const f = e.target;
+  if (!validarTodo(f)) return;
+  const boton = f.querySelector("[type=submit]");
+  boton.disabled = true; boton.textContent = "Creando…";
+  try {
+    const p = await api("/mis-productos", { method: "POST", body: JSON.stringify({
+      nombre_producto: f.nombre_producto.value.trim(), descripcion: f.descripcion.value.trim(), precio: Number(f.precio.value) }) });
+    toast(`"${p.nombre}" quedó en el menú`);
+    ultimoPanel = ""; cargarPanel(); cargarMenu();
+  } catch (err) {
+    if (!erroresDelServidor(f, err.campos)) toast(err.message);
+    boton.disabled = false; boton.textContent = "Crear producto";
+  }
+});
+// Subir archivo desde "Mis archivos" (POST /api/archivos)
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "formArchivo") return;
+  e.preventDefault();
+  const f = e.target, archivo = f.archivo.files[0];
+  if (!archivo) return mostrarError(f.archivo, "Selecciona una imagen");
+  const problema = errorArchivo(archivo);
+  if (problema) return mostrarError(f.archivo, problema);
+  const boton = f.querySelector("[type=submit]");
+  boton.disabled = true; boton.textContent = "Subiendo…";
+  try {
+    await subirArchivo(f.categoria.value, archivo);
+    toast("Archivo guardado");
+    ultimoPanel = ""; cargarPanel();
+  } catch (err) {
+    mostrarError(f.archivo, err.message);
+    boton.disabled = false; boton.textContent = "Subir";
+  }
+});
+document.addEventListener("change", (e) => {
   const t = e.target;
-  if (t.dataset.r !== undefined && t.classList.contains("chip")) { filtro = +t.dataset.r; pintarFiltros(); pintarMenu(); }
-  if (t.dataset.add) agregar(+t.dataset.add);
-  if (t.dataset.inc) { carrito[t.dataset.inc]++; pintarCarrito(); }
-  if (t.dataset.dec) { if (--carrito[t.dataset.dec] <= 0) delete carrito[t.dataset.dec]; pintarCarrito(); }
-  if (t.hasAttribute("data-close") || t === $("#loginModal")) abrirLogin(false);
+  if (t.dataset.foto && t.files[0]) {
+    const problema = errorArchivo(t.files[0]);
+    if (problema) { t.value = ""; return toast(problema); }
+    const fd = new FormData(); fd.append("archivo", t.files[0]);
+    accionPanel(() => api(`/productos/${t.dataset.foto}/foto`, { method: "POST", body: fd }), "Foto actualizada")
+      .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
+  }
+  if (t.dataset.evidencia && t.files[0]) {
+    const problema = errorArchivo(t.files[0]);
+    if (problema) { t.value = ""; return toast(problema); }
+    t.closest("label").firstChild.textContent = "📷 " + t.files[0].name.slice(0, 18);
+  }
 });
 $("#btnCart").onclick = () => abrirCarrito(true);
 $("#closeCart").onclick = $("#overlay").onclick = () => abrirCarrito(false);
-$("#btnUser").onclick = () => {
-  if (cliente) { cliente = null; sessionStorage.removeItem("cliente"); pintarUsuario(); toast("Sesión cerrada"); }
-  else abrirLogin(true);
-};
+$("#btnUser").onclick = () => usuario ? cerrarSesion() : abrirLogin(true);
+$("#btnPedidos").onclick = () => ir(inicioDe(usuario.rol));
+$("#brand").onclick = () => ir(usuario && !esEmpleado() ? inicioDe(usuario.rol) : "#/");
 $("#checkout").onclick = confirmarPedido;
-$("#btnBack").onclick = () => { clearInterval(window.timer); $("#viewStatus").classList.remove("active"); $("#viewMenu").classList.add("active"); };
-$("#applyCoupon").onclick = () => {
-  const c = cupones.find(x => x.codigo === $("#couponInput").value.trim().toUpperCase());
-  cupon = c || null;
-  $("#couponMsg").textContent = c ? `✅ ${c.condiciones}` : "Cupón no válido";
-  pintarCarrito();
+$("#btnBack").onclick = () => { ir("#/"); cargarMenu(); };
+$("#btnCancel").onclick = async (e) => {
+  if (!confirmarAccion(e.target)) return;
+  try { seguirPedido(await cambiarEstado(e.target.dataset.id, "cancelado")); toast("Pedido cancelado"); }
+  catch (err) { toast(err.message); }
 };
-let tt; function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2400); }
+$("#applyCoupon").onclick = () => aplicarCupon($("#couponInput").value);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { cerrarVentana(); abrirCarrito(false); } });
+$("#couponInput").onkeydown = (e) => { if (e.key === "Enter") aplicarCupon(e.target.value); };
+let tt; function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2600); }
 
-pintarFiltros(); pintarMenu(); pintarCarrito(); pintarUsuario();
+pintarCarrito(); pintarUsuario(); cargarMenu();
+router();   // muestra la vista que indica la URL (también al recargar con F5)
