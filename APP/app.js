@@ -310,7 +310,8 @@ function iniciarSesion(r) {
 function pintarUsuario() {
   $("#btnUser").textContent = usuario ? `👤 ${usuario.nombre} · Salir` : "Iniciar sesión";
   $("#btnCart").hidden = !esEmpleado();
-   $("#ctaAuth").hidden = !!usuario;        // la landing solo ofrece login/registro a quien no tiene sesión
+  $("#btnPedidos").hidden = !usuario;
+  $("#ctaAuth").hidden = !!usuario;         // la landing solo ofrece login/registro a quien no tiene sesión
   $("#btnPedidos").textContent = !usuario ? "" : usuario.rol === "empleado" ? "📋 Mis pedidos"
     : usuario.rol === "domiciliario" ? "🛵 Mis entregas" : "🍳 Panel";
 }
