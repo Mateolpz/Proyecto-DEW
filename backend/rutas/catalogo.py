@@ -72,10 +72,10 @@ async def subir_foto(id_producto: int, archivo: UploadFile | None = File(None),
     imagen = await leer_imagen(archivo)
     if not imagen:
         raise ErrorApi(400, "Adjunta una imagen")
-    with transaccion(conn):
-        id_foto = guardar_archivo(conn, imagen, "foto_producto", u["id"])
-        ejecutar(conn, "UPDATE productos SET id_fotoFK = %s WHERE id_producto = %s", (id_foto, id_producto))
-    return {"foto": uno(conn, "SELECT ruta_url FROM archivos WHERE id_archivo = %s", (id_foto,))["ruta_url"]}
+    a = guardar_archivo(conn, imagen, "foto_producto", u["id"],
+                        vincular=lambda id_foto: ejecutar(conn, "UPDATE productos SET id_fotoFK = %s WHERE id_producto = %s",
+                                                          (id_foto, id_producto)))
+    return {"foto": a["ruta"]}
 
 class ProductoNuevo(BaseModel):
     nombre_producto: str = ""

@@ -3,6 +3,7 @@
    Consume la API REST de backend/main.py (Python + FastAPI). Roles:
    empleado → menú, carrito y seguimiento · restaurante → panel de pedidos y productos
    domiciliario → entregas asignadas · admin → panel del restaurante con todos los pedidos
+   Persistencia dual: todo archivo que sube el usuario va a disco y a la tabla `archivos`.
    ===================================================================== */
 
 /* ====== API ====== */
@@ -25,7 +26,7 @@ async function api(ruta, opciones = {}) {
     toast("Tu sesión terminó, vuelve a iniciar sesión");
     abrirLogin(true);
   }
-  if (!res.ok) throw Object.assign(new Error(data.error || "Error del servidor"), { campos: data.campos });
+  if (!res.ok) throw Object.assign(new Error(data.error || data.detail || "Error del servidor"), { campos: data.campos });
   return data;
 }
 
@@ -54,7 +55,7 @@ const esEmpleado = () => !usuario || usuario.rol === "empleado";
 
 /* ====== Rutas (hash) ======
    Públicas:  #/  ·  #/login  ·  #/registro
-   Privadas:  #/mis-pedidos  ·  #/pedido/:id  (empleado)
+   Privadas:  #/mis-pedidos[/archivos]  ·  #/pedido/:id  (empleado)
               #/panel[/pestaña]  (restaurante/admin)  ·  #/entregas[/pestaña]  (domiciliario)
    Una ruta privada sin sesión redirige a #/login y, al entrar, vuelve a donde iba. */
 const RUTAS_PRIVADAS = {
@@ -204,6 +205,11 @@ async function aplicarCupon(codigo) {
    Cada regla devuelve el mensaje de error, o "" si el valor está bien.
    Los errores se muestran debajo de cada campo (también los que responde el backend). */
 const SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' -]{2,100}$/;
+const MAX_ARCHIVO = 5 * 1024 * 1024;                       // 5 MB, igual que el backend
+const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/webp"];
+// Valida una imagen antes de enviarla (el backend la vuelve a validar)
+const errorArchivo = (a) => !a ? "" : !TIPOS_IMAGEN.includes(a.type) ? "Solo imágenes JPG, PNG o WebP"
+  : a.size > MAX_ARCHIVO ? "El archivo supera los 5 MB" : "";
 const REGLAS = {
   correo: (v) => !v ? "Escribe tu correo" : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) ? "Escribe un correo válido" : "",
   contrasenia: (v, f) => !v ? "Escribe tu contraseña"
@@ -220,6 +226,7 @@ const REGLAS = {
   punto_entrega: (v) => v.length < 3 ? "Indica dónde te lo llevamos (ej. Falabella, piso 1)" : "",
   nombre_producto: (v) => v.length < 2 ? "Escribe el nombre del producto" : v.length > 150 ? "Máximo 150 caracteres" : "",
   precio: (v) => !v ? "Escribe el precio" : !(Number(v) > 0) ? "El precio debe ser mayor que 0" : "",
+  carne: (v, f) => errorArchivo(f.carne?.files[0]),         // opcional, pero si lo suben debe ser válido
 };
 function mostrarError(input, mensaje) {
   const campo = input.closest(".field");
@@ -266,6 +273,10 @@ document.addEventListener("input", (e) => {
   if (["documento", "telefono"].includes(t.name)) t.value = t.value.replace(/\D/g, "");
   if (t.dataset.tocado) validarCampo(t);
   if (t.name === "contrasenia" && t.form?.confirmar?.dataset.tocado) validarCampo(t.form.confirmar);
+});
+// Los campos de archivo no lanzan "input" en todos los navegadores: se validan al elegir el archivo
+document.addEventListener("change", (e) => {
+  if (e.target.type === "file" && e.target.matches?.(".field [name]")) { e.target.dataset.tocado = "1"; validarCampo(e.target); }
 });
 
 /* ====== Sesión ====== */
@@ -345,8 +356,9 @@ $("#registroForm").addEventListener("submit", async (e) => {
   const f = e.target;
   $("#registroError").textContent = "";
   if (!validarTodo(f)) { $("#registroError").textContent = "Revisa los campos marcados en rojo"; return; }
+  const carne = f.carne.files[0];                           // se guarda antes de f.reset()
   const datos = Object.fromEntries(new FormData(f));
-  delete datos.confirmar;
+  delete datos.confirmar; delete datos.carne;               // el carné no viaja en el JSON del registro
   datos.id_centro = Number(datos.id_centro);
   const boton = f.querySelector("[type=submit]");
   boton.disabled = true; boton.textContent = "Creando cuenta…";
@@ -355,6 +367,10 @@ $("#registroForm").addEventListener("submit", async (e) => {
     f.reset(); limpiarErrores(f);
     iniciarSesion(r);
     toast(`¡Bienvenido, ${r.usuario.nombre}! Tu cuenta quedó creada`);
+    // Persistencia dual del carné: ya hay sesión, se sube a disco + tabla archivos
+    if (carne) subirArchivo("carne_empleado", carne)
+      .then(() => toast("Carné guardado"))
+      .catch((err) => toast("Cuenta creada, pero el carné no se pudo subir: " + err.message));
   } catch (err) {
     erroresDelServidor(f, err.campos);
     $("#registroError").textContent = err.message;
@@ -426,6 +442,64 @@ async function cambiarEstado(id, estado) {
   return api(`/pedidos/${id}/estado`, { method: "PATCH", body: JSON.stringify({ estado }) });
 }
 
+/* ====== Archivos (persistencia dual: disco + tabla archivos) ====== */
+// Qué categorías puede subir cada rol desde "Mis archivos".
+// foto_producto y evidencia_entrega se suben desde sus propias pantallas (Productos y Entregas).
+const SUBIDAS = {
+  empleado: [["foto_perfil", "Foto de perfil"], ["carne_empleado", "Carné del centro comercial"]],
+  restaurante: [["foto_perfil", "Foto de perfil"], ["logo_restaurante", "Logo del restaurante"]],
+  domiciliario: [["foto_perfil", "Foto de perfil"]],
+  admin: [["foto_perfil", "Foto de perfil"]],
+};
+const NOMBRE_CAT = { foto_producto: "Foto de producto", logo_restaurante: "Logo", foto_perfil: "Foto de perfil",
+  carne_empleado: "Carné", evidencia_entrega: "Evidencia de entrega" };
+const pesoLegible = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+
+function subirArchivo(categoria, archivo) {
+  const fd = new FormData(); fd.append("categoria", categoria); fd.append("archivo", archivo);
+  return api("/archivos", { method: "POST", body: fd });
+}
+// Los archivos privados necesitan el token: se piden con fetch y se abren desde un blob
+async function abrirArchivo(id, descargar, nombre) {
+  const res = await fetch(`${API}/archivos/${id}/descargar${descargar ? "" : "?ver=1"}`, { headers: { Authorization: "Bearer " + token } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "No se pudo abrir el archivo");
+  }
+  const url = URL.createObjectURL(await res.blob());
+  if (descargar) { const a = document.createElement("a"); a.href = url; a.download = nombre || "archivo"; a.click(); }
+  else window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+function pintarArchivos(lista) {
+  const opciones = (SUBIDAS[usuario.rol] || []).map(([k, t]) => `<option value="${k}">${t}</option>`).join("");
+  const form = `<form id="formArchivo" class="order prod-new" novalidate>
+    <header><b>⬆️ Subir archivo</b></header>
+    <label class="field">Tipo
+      <select name="categoria">${opciones}</select>
+      <small class="field-error"></small>
+    </label>
+    <label class="field">Imagen (JPG, PNG o WebP, máximo 5 MB)
+      <input name="archivo" type="file" accept="image/jpeg,image/png,image/webp">
+      <small class="field-error"></small>
+    </label>
+    <div class="order-actions"><button class="btn" type="submit">Subir</button></div>
+  </form>`;
+  return form + (lista.length ? lista.map(a => `<article class="order">
+    <header><b>${esc(a.nombre_original)}</b><span class="estado preparando">${esc(NOMBRE_CAT[a.categoria] || a.categoria)}</span></header>
+    <div class="order-meta">
+      <span>📦 ${pesoLegible(a.peso_bytes)} · ${esc(a.tipo_mime)}</span>
+      <span>🕒 ${esc(String(a.fecha_subida).slice(0, 16).replace("T", " "))}</span>
+      ${usuario.rol === "admin" ? `<span>👤 Autor #${a.autor}</span>` : ""}
+    </div>
+    <div class="order-actions">
+      <button class="btn ghost" data-ver-archivo="${a.id}">👁️ Ver</button>
+      <button class="btn ghost" data-bajar="${a.id}" data-nombre="${esc(a.nombre_original)}">⬇️ Descargar</button>
+      ${a.categoria === "evidencia_entrega" ? "" /* es la prueba del pedido: no se borra */
+        : `<button class="btn ghost danger" data-borrar-archivo="${a.id}">🗑️ Eliminar</button>`}
+    </div></article>`).join("") : `<p class="muted vacio">Todavía no has subido archivos.</p>`);
+}
+
 /* ====== Paneles ====== */
 let pestana = "pedidos";
 let ultimoPanel = "";
@@ -437,8 +511,9 @@ function abrirPanel() {
     : rol === "domiciliario" ? "Pedidos que te asignaron. Al entregar, sube la foto de evidencia."
     : "Prepara, asigna domiciliario y despacha los pedidos.";
   const tabs = rol === "restaurante" || rol === "admin"
-    ? [["pedidos", "Pedidos activos"], ["historial", "Historial"], ["productos", "Productos"]]
-    : rol === "domiciliario" ? [["pedidos", "Por entregar"], ["historial", "Entregados"]] : [];
+    ? [["pedidos", "Pedidos activos"], ["historial", "Historial"], ["productos", "Productos"], ["archivos", "Mis archivos"]]
+    : rol === "domiciliario" ? [["pedidos", "Por entregar"], ["historial", "Entregados"], ["archivos", "Mis archivos"]]
+    : [["pedidos", "Mis pedidos"], ["archivos", "Mis archivos"]];
   if (!tabs.some(t => t[0] === pestana)) pestana = "pedidos";
   $("#panelTabs").innerHTML = tabs.map(([k, t]) => `<button class="chip ${k === pestana ? "on" : ""}" data-tab="${k}">${t}</button>`).join("");
   ultimoPanel = "";
@@ -452,7 +527,10 @@ async function cargarPanel(silencioso = false) {
   if (!silencioso) $("#panelBody").innerHTML = `<p class="muted">Cargando…</p>`;
   try {
     let html;
-    if (pestana === "productos") {
+    if (pestana === "archivos") {
+      if (silencioso) return;                       // el formulario de subida no se refresca solo
+      html = pintarArchivos(await api("/archivos"));
+    } else if (pestana === "productos") {
       if (silencioso) return;
       html = pintarProductosPanel(await api("/mis-productos"));
     } else {
@@ -485,7 +563,7 @@ function tarjetaPedido(p, repartidores) {
   if (gestiona && ["pendiente", "preparando"].includes(p.estado))
     acciones += `<button class="btn ghost danger" data-estado="cancelado" data-id="${p.id}">Cancelar</button>`;
   if (rol === "domiciliario" && p.estado === "en_camino")
-    acciones += `<label class="file-btn">📷 Foto de entrega<input type="file" accept="image/*" capture="environment" data-evidencia="${p.id}"></label>
+    acciones += `<label class="file-btn">📷 Foto de entrega<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" data-evidencia="${p.id}"></label>
       <button class="btn" data-entregar="${p.id}">✅ Marcar entregado</button>`;
 
   return `<article class="order ${rol === "empleado" ? "clickable" : ""}" ${rol === "empleado" ? `data-ver="${p.id}"` : ""}>
@@ -528,7 +606,7 @@ function pintarProductosPanel(lista) {
       <div class="prod-info"><b>${esc(p.nombre)}</b><span class="muted small">${money(p.precio)}</span></div>
       <div class="order-actions">
         <button class="btn ${p.disponible ? "ghost" : ""}" data-toggle="${p.id}" data-disp="${p.disponible ? 0 : 1}">${p.disponible ? "Marcar agotado" : "Marcar disponible"}</button>
-        <label class="file-btn">📷 Cambiar foto<input type="file" accept="image/*" data-foto="${p.id}"></label>
+        <label class="file-btn">📷 Cambiar foto<input type="file" accept="image/jpeg,image/png,image/webp" data-foto="${p.id}"></label>
         <button class="btn ghost danger" data-eliminar="${p.id}">🗑️ Eliminar</button>
       </div></article>`;
   }).join("");
@@ -560,6 +638,8 @@ document.addEventListener("click", async (e) => {
   }
   if (d.entregar) {
     const archivo = $(`[data-evidencia="${d.entregar}"]`).files[0];
+    const problema = errorArchivo(archivo);
+    if (problema) return toast(problema);
     if (!archivo && !confirmarAccion(t, "¿Entregar sin foto?")) return;
     const fd = new FormData(); if (archivo) fd.append("archivo", archivo);
     accionPanel(() => api(`/pedidos/${d.entregar}/entregar`, { method: "POST", body: fd }), "¡Pedido entregado!");
@@ -571,6 +651,13 @@ document.addEventListener("click", async (e) => {
   }
   if (d.toggle) accionPanel(() => api(`/productos/${d.toggle}`, { method: "PATCH", body: JSON.stringify({ disponible: d.disp === "1" }) }))
     .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
+  // Archivos: ver, descargar y eliminar (persistencia dual)
+  if (d.verArchivo) abrirArchivo(d.verArchivo, false).catch((err) => toast(err.message));
+  if (d.bajar) abrirArchivo(d.bajar, true, d.nombre).catch((err) => toast(err.message));
+  if (d.borrarArchivo) {
+    if (!confirmarAccion(t)) return;
+    accionPanel(() => api(`/archivos/${d.borrarArchivo}`, { method: "DELETE" }), "Archivo eliminado");
+  }
   if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) cerrarVentana();
   if (t.hasAttribute?.("data-ir-registro")) abrirRegistro();
   if (t.hasAttribute?.("data-ir-login")) abrirLogin(true);
@@ -602,14 +689,39 @@ document.addEventListener("submit", async (e) => {
     boton.disabled = false; boton.textContent = "Crear producto";
   }
 });
+// Subir archivo desde "Mis archivos" (POST /api/archivos)
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "formArchivo") return;
+  e.preventDefault();
+  const f = e.target, archivo = f.archivo.files[0];
+  if (!archivo) return mostrarError(f.archivo, "Selecciona una imagen");
+  const problema = errorArchivo(archivo);
+  if (problema) return mostrarError(f.archivo, problema);
+  const boton = f.querySelector("[type=submit]");
+  boton.disabled = true; boton.textContent = "Subiendo…";
+  try {
+    await subirArchivo(f.categoria.value, archivo);
+    toast("Archivo guardado");
+    ultimoPanel = ""; cargarPanel();
+  } catch (err) {
+    mostrarError(f.archivo, err.message);
+    boton.disabled = false; boton.textContent = "Subir";
+  }
+});
 document.addEventListener("change", (e) => {
   const t = e.target;
   if (t.dataset.foto && t.files[0]) {
+    const problema = errorArchivo(t.files[0]);
+    if (problema) { t.value = ""; return toast(problema); }
     const fd = new FormData(); fd.append("archivo", t.files[0]);
     accionPanel(() => api(`/productos/${t.dataset.foto}/foto`, { method: "POST", body: fd }), "Foto actualizada")
       .then(() => { ultimoPanel = ""; cargarPanel(); cargarMenu(); });
   }
-  if (t.dataset.evidencia && t.files[0]) t.closest("label").firstChild.textContent = "📷 " + t.files[0].name.slice(0, 18);
+  if (t.dataset.evidencia && t.files[0]) {
+    const problema = errorArchivo(t.files[0]);
+    if (problema) { t.value = ""; return toast(problema); }
+    t.closest("label").firstChild.textContent = "📷 " + t.files[0].name.slice(0, 18);
+  }
 });
 $("#btnCart").onclick = () => abrirCarrito(true);
 $("#closeCart").onclick = $("#overlay").onclick = () => abrirCarrito(false);

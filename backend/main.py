@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from archivos import UPLOADS  # noqa: E402
+import archivos  # noqa: E402
 from db import conectar  # noqa: E402
 from rutas import auth, catalogo, pedidos  # noqa: E402
 from seguridad import ErrorApi, hashear  # noqa: E402
@@ -103,6 +103,7 @@ def health():
 app.include_router(auth.router)
 app.include_router(catalogo.router)
 app.include_router(pedidos.router)
+app.include_router(archivos.router)
 
 
 @app.api_route("/api/{ruta:path}", methods=["GET", "POST", "PATCH", "PUT", "DELETE"], include_in_schema=False)
@@ -113,8 +114,11 @@ def ruta_no_encontrada(ruta: str):
 # ---------------------------------------------------------------------
 # Archivos subidos y frontend (APP/)
 # ---------------------------------------------------------------------
-UPLOADS.mkdir(exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOADS), name="uploads")
+# Solo productos, logos y entregas son públicos; carnés y fotos de perfil se piden con login
+# por GET /api/archivos/{id}/descargar.
+archivos.crear_carpetas()
+for sub in archivos.CARPETAS_PUBLICAS:
+    app.mount(f"/uploads/{sub}", StaticFiles(directory=archivos.BASE / sub), name=f"uploads-{sub}")
 
 
 @app.get("/", include_in_schema=False)
