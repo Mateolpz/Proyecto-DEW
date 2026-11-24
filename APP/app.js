@@ -35,7 +35,7 @@ const $ = (s) => document.querySelector(s);
 const money = (n) => "$" + Math.round(n).toLocaleString("es-CO");
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const foto = (ruta) => (ruta ? `${SERVIDOR}/${ruta}` : "");
-const EMOJI = { "Hamburguesas": "🍔", "Pizzería": "🍕", "Comida típica": "🍛" };
+const EMOJI = { "Hamburguesas": "🍔", "Pizzería": "🍕", "Comida típica": "🍛", "Sushi": "🍣", "Postres": "🍰", "Café": "☕" };
 const emojiDe = (rest) => EMOJI[rest?.categoria] || "🍽️";
 const ETIQUETA = { pendiente: "Pendiente", preparando: "En preparación", en_camino: "En camino", entregado: "Entregado", cancelado: "Cancelado" };
 const hora = (f) => (f || "").slice(11, 16);
@@ -309,7 +309,7 @@ async function mostrarRegistro() {
 function iniciarSesion(r) {
   token = r.token; usuario = r.usuario;
   sessionStorage.setItem("token", token); sessionStorage.setItem("usuario", JSON.stringify(usuario));
-  cerrarModales(); pintarUsuario(); toast(`¡Hola, ${usuario.nombre}!`);
+  cerrarModales(); pintarUsuario(); cargarAvatar(); toast(`¡Hola, ${usuario.nombre}!`);
   if (usuario.rol !== "empleado") { carrito = {}; pintarCarrito(); }
   const destino = sessionStorage.getItem("destino");
   sessionStorage.removeItem("destino");
@@ -318,8 +318,22 @@ function iniciarSesion(r) {
   }
   ir(destino || (usuario.rol === "empleado" ? "#/" : inicioDe(usuario.rol)), true);
 }
+// Foto de perfil: es privada, así que se pide con el token y se muestra desde un blob
+let avatarUrl = "";
+async function cargarAvatar() {
+  if (avatarUrl) { URL.revokeObjectURL(avatarUrl); avatarUrl = ""; }
+  if (token) {
+    try {
+      const res = await fetch(API + "/perfil/foto", { headers: { Authorization: "Bearer " + token } });
+      if (res.ok) avatarUrl = URL.createObjectURL(await res.blob());
+    } catch { /* sin foto: se queda el emoji */ }
+  }
+  pintarUsuario();
+}
 function pintarUsuario() {
-  $("#btnUser").textContent = usuario ? `👤 ${usuario.nombre} · Salir` : "Iniciar sesión";
+  const b = $("#btnUser");
+  if (!usuario) b.textContent = "Iniciar sesión";
+  else b.innerHTML = `${avatarUrl ? `<img class="avatar" src="${avatarUrl}" alt="">` : "👤"} ${esc(usuario.nombre)} · Salir`;
   $("#btnCart").hidden = !esEmpleado();
   $("#btnPedidos").hidden = !usuario;
   $("#ctaAuth").hidden = !!usuario;         // la landing solo ofrece login/registro a quien no tiene sesión
@@ -332,7 +346,7 @@ function cerrarSesion(avisar = true) {
   sessionStorage.removeItem("token"); sessionStorage.removeItem("usuario");
   if (tokenActual) fetch(API + "/logout", { method: "POST", headers: { Authorization: "Bearer " + tokenActual } }).catch(() => {});
   sessionStorage.removeItem("destino");
-  pintarUsuario(); pintarCarrito(); ir("#/", true);
+  cargarAvatar(); pintarCarrito(); ir("#/", true);
   if (avisar) toast("Sesión cerrada");
 }
 $("#loginForm").addEventListener("submit", async (e) => {
@@ -656,7 +670,7 @@ document.addEventListener("click", async (e) => {
   if (d.bajar) abrirArchivo(d.bajar, true, d.nombre).catch((err) => toast(err.message));
   if (d.borrarArchivo) {
     if (!confirmarAccion(t)) return;
-    accionPanel(() => api(`/archivos/${d.borrarArchivo}`, { method: "DELETE" }), "Archivo eliminado");
+    accionPanel(() => api(`/archivos/${d.borrarArchivo}`, { method: "DELETE" }), "Archivo eliminado").then(cargarAvatar);
   }
   if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) cerrarVentana();
   if (t.hasAttribute?.("data-ir-registro")) abrirRegistro();
@@ -702,6 +716,7 @@ document.addEventListener("submit", async (e) => {
   try {
     await subirArchivo(f.categoria.value, archivo);
     toast("Archivo guardado");
+    if (f.categoria.value === "foto_perfil") cargarAvatar();
     ultimoPanel = ""; cargarPanel();
   } catch (err) {
     mostrarError(f.archivo, err.message);
@@ -740,5 +755,5 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") { cerrarVe
 $("#couponInput").onkeydown = (e) => { if (e.key === "Enter") aplicarCupon(e.target.value); };
 let tt; function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2600); }
 
-pintarCarrito(); pintarUsuario(); cargarMenu();
+pintarCarrito(); pintarUsuario(); cargarAvatar(); cargarMenu();
 router();   // muestra la vista que indica la URL (también al recargar con F5)

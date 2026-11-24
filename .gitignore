@@ -150,3 +150,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Visual Studio (carpeta interna, no va al repo)
+.vs/
