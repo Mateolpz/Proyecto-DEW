@@ -77,6 +77,19 @@ Cualquier empleado nuevo puede crear su cuenta desde **Regístrate** en la venta
 Los errores siempre responden `{"error": "...", "campos": {"campo": "mensaje"}}`; el frontend muestra cada mensaje debajo de su campo.
 Las rutas protegidas usan `Authorization: Bearer <token>` (JWT, 8 h). El admin tiene todos los permisos.
 
+## Prueba del flujo completo
+
+Con el backend corriendo, abre tres ventanas (una en incógnito) y sigue esta lista:
+
+1. **Landing:** abre `http://localhost:3000`, usa "Ver menú" y los botones "Iniciar sesión" / "Regístrate".
+2. **Rutas privadas:** sin sesión, escribe `#/entregas` en la URL: debe llevarte al login y, después de entrar, volver a esa ruta.
+3. **Empleado (ana@centro.com):** agrega productos, aplica un cupón, confirma el pedido y sigue su estado.
+4. **Restaurante (burger@foodcourt.co):** "Empezar a preparar" → asigna un domiciliario → "Despachar".
+5. **Domiciliario (andres@foodcourt.co):** sube una foto y marca "Entregado".
+6. **Cierre:** el empleado ve el pedido en "Mis pedidos" con estado entregado; cada rol cierra sesión y las rutas privadas vuelven a pedir login.
+7. **Recarga:** con F5 en cualquier vista la aplicación debe quedarse en la misma pantalla.
+
+
 ## Reglas de negocio
 
 Las garantizan los triggers de `schema.sql`; el backend además las valida antes para dar mensajes claros:
