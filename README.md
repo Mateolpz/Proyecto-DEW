@@ -39,9 +39,9 @@ Todos los usuarios de prueba quedan con la clave **1234**:
 
 | Rol | Correo |
 |---|---|
-| Empleado | `ana@centro.com`, `julian@centro.com` |
-| Restaurante | `burger@foodcourt.co`, `pizza@foodcourt.co`, `criollo@foodcourt.co` |
-| Domiciliario | `andres@foodcourt.co`, `camila@foodcourt.co` |
+| Empleado | `ana@centro.com`, `julian@centro.com`, `valentina@centro.com`… (10 en total; `juanpablo@centro.com` está sin verificar) |
+| Restaurante | `burger@foodcourt.co`, `pizza@foodcourt.co`, `criollo@foodcourt.co`, `sushi@foodcourt.co`, `postres@foodcourt.co`, `cafe@foodcourt.co` |
+| Domiciliario | `andres@foodcourt.co`, `camila@foodcourt.co`, `jhon@foodcourt.co`, `paola@foodcourt.co`, `esteban@foodcourt.co`, `natalia@foodcourt.co` |
 | Admin | `admin@foodcourt.co` |
 
 Para probar el flujo completo abre 3 ventanas (una en incógnito): el empleado pide, el restaurante prepara, asigna domiciliario y despacha, y el domiciliario entrega con foto.
@@ -73,6 +73,10 @@ Cualquier empleado nuevo puede crear su cuenta desde **Regístrate** en la venta
 | POST | `/api/logout` | logueado | Cierra la sesión e invalida el token |
 | POST | `/api/mis-productos` | restaurante | Crea un producto (201) |
 | DELETE | `/api/productos/:id` | restaurante | Elimina un producto sin pedidos (409 si tiene pedidos) |
+| POST | `/api/archivos` | logueado | `multipart`: `categoria` (`foto_perfil`, `carne_empleado`, `logo_restaurante`) + `archivo` |
+| GET | `/api/archivos` | logueado | Archivos que subió el usuario (el admin ve todos) |
+| GET | `/api/archivos/:id/descargar?ver=1` | dueño o admin | Ver (`ver=1`) o descargar el archivo |
+| DELETE | `/api/archivos/:id` | dueño o admin | Borra el archivo del disco y de la tabla (las fotos de entrega no se borran) |
 
 Los errores siempre responden `{"error": "...", "campos": {"campo": "mensaje"}}`; el frontend muestra cada mensaje debajo de su campo.
 Las rutas protegidas usan `Authorization: Bearer <token>` (JWT, 8 h). El admin tiene todos los permisos.

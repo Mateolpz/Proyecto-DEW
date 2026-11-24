@@ -247,10 +247,16 @@ async def entregar(id_pedido: int, archivo: UploadFile | None = File(None),
     if p["estado"] != "en_camino":
         raise ErrorApi(400, "El pedido no está en camino")
     imagen = await leer_imagen(archivo)
-    with transaccion(conn):
-        id_evidencia = guardar_archivo(conn, imagen, "evidencia_entrega", u["id"]) if imagen else None
+
+    def marcar_entregado(id_evidencia=None):
         ejecutar(conn,
             """UPDATE pedidos SET estado = 'entregado', id_evidenciaFK = %s,
                       tiempo_real = TIMESTAMPDIFF(MINUTE, fecha_pedido, NOW())
                 WHERE id_pedido = %s""", (id_evidencia, id_pedido))
+
+    if imagen:   # la foto y el cambio de estado se guardan juntos (persistencia dual atómica)
+        guardar_archivo(conn, imagen, "evidencia_entrega", u["id"], vincular=marcar_entregado)
+    else:
+        with transaccion(conn):
+            marcar_entregado()
     return detalle_pedido(conn, id_pedido)
