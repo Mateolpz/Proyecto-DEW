@@ -75,6 +75,15 @@ VALUES ('Otra', 'Persona', '1144999999', '3009999999', 'ana@centro.com', 'HASH_P
 INSERT INTO cupones (codigo, tipo, valor, fecha_inicio, fecha_fin, usos_maximos)
 VALUES ('MITAD150', 'porcentaje', 150, CURDATE(), CURDATE() + INTERVAL 10 DAY, 10);
 
+-- ---------- Regla: al cancelar se devuelve el cupón ----------
+-- PRUEBA 15 - debe FUNCIONAR: Ana cancela el pedido 102 (usó PROMO5000 en la prueba 7)
+UPDATE pedidos SET estado = 'cancelado' WHERE id_pedido = 102;
+SELECT usado AS promo5000_usado FROM empleado_cupon WHERE id_empleadoFK = 1 AND id_cuponFK = 2;   -- debe dar 0
+
+-- PRUEBA 16 - debe FUNCIONAR: como recuperó el cupón, puede volver a usarlo en un pedido nuevo
+INSERT INTO pedidos (id_pedido, id_empleadoFK, id_restauranteFK, id_cuponFK, punto_entrega, subtotal, descuento)
+VALUES (103, 1, 2, 2, 'Falabella, piso 1', 22000, 5000);
+
 -- ---------- Consultas para revisar los resultados ----------
 -- Historial completo del pedido 100 (se generó solo con los triggers)
 SELECT h.estado, h.fecha_hora, CONCAT(u.primer_nombre, ' ', u.primer_apellido) AS domiciliario
