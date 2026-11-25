@@ -393,4 +393,5 @@ SET h.fecha_hora = p.fecha_pedido + INTERVAL (CASE h.estado
       WHEN 'cancelado'  THEN 3
       WHEN 'en_camino'  THEN LEAST(12, GREATEST(p.tiempo_estimado - 10, 5))
       WHEN 'entregado'  THEN p.tiempo_real
-    END) MINUTE;
+    END) MINUTE
+WHERE h.id_historial > 0;   -- WHERE sobre la llave: así funciona aunque Workbench tenga activo el "safe update mode"

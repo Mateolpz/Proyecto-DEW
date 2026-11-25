@@ -366,6 +366,12 @@ BEGIN
      AND NEW.id_domiciliarioFK IS NOT NULL THEN
     UPDATE domiciliarios SET disponible = TRUE WHERE id_usuarioFK = NEW.id_domiciliarioFK;
   END IF;
+
+  -- Si el pedido se cancela, el empleado recupera su cupón para usarlo en otro pedido
+  IF NEW.estado = 'cancelado' AND OLD.estado <> 'cancelado' AND NEW.id_cuponFK IS NOT NULL THEN
+    UPDATE empleado_cupon SET usado = FALSE
+    WHERE id_empleadoFK = NEW.id_empleadoFK AND id_cuponFK = NEW.id_cuponFK;
+  END IF;
 END$$
 
 -- REGLA: todos los productos de un pedido son del mismo restaurante y están disponibles.
