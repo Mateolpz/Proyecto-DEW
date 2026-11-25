@@ -1,13 +1,23 @@
 """Conexión a MySQL y utilidades para consultas."""
 import os
+import ssl as ssl_lib
 from contextlib import contextmanager
 
 import pymysql
 from pymysql.cursors import DictCursor
 
 
+def _ssl():
+    """En la nube (Aiven, etc.) la conexión debe ir cifrada: DB_SSL=true en las variables de entorno."""
+    if os.getenv("DB_SSL", "false").lower() not in ("1", "true", "si", "sí"):
+        return None
+    ca = os.getenv("DB_SSL_CA")  # opcional: ruta al certificado CA del proveedor
+    return {"ca": ca} if ca else {"check_hostname": False, "verify_mode": ssl_lib.CERT_NONE}
+
+
 def conectar():
     return pymysql.connect(
+        ssl=_ssl(),
         host=os.getenv("DB_HOST", "localhost"),
         port=int(os.getenv("DB_PORT", "3306")),
         user=os.getenv("DB_USER", "root"),

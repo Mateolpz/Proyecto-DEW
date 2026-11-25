@@ -7,8 +7,10 @@
    ===================================================================== */
 
 /* ====== API ====== */
-// Si lo sirve el backend (puerto 3000) usa la misma URL; si lo abres directo o con Live Server, apunta al backend local
-const SERVIDOR = location.port === "3000" ? "" : "http://localhost:3000";
+// Si lo sirve el backend (local en el puerto 3000 o en la web) usa la misma URL;
+// si lo abres directo (file://) o con Live Server, apunta al backend local
+const SERVIDOR = location.protocol === "file:" || (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && location.port !== "3000")
+  ? "http://localhost:3000" : "";
 const API = SERVIDOR + "/api";
 
 async function api(ruta, opciones = {}) {

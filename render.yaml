@@ -1,0 +1,31 @@
+# Despliegue en Render (Blueprint). Render lee este archivo al crear el servicio.
+services:
+  - type: web
+    name: foodcourt-express
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: foodcourt
+      - key: DB_SSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLAVE_DEMO
+        value: "1234"
+      - key: VERIFICAR_AUTOMATICO
+        value: "true"
