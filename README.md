@@ -2,6 +2,62 @@
 
 Domicilios de los restaurantes del centro comercial para sus empleados.
 
+## Problema
+
+Quienes trabajan en un centro comercial tienen poco tiempo de almuerzo y no pueden dejar su local solo para ir a la plazoleta de comidas. Los restaurantes, por su lado, no tienen una forma ordenada de recibir esos pedidos internos ni de saber quién los entrega. Hoy todo se resuelve por WhatsApp o en persona, sin seguimiento.
+
+## Objetivos
+
+**General:** construir una aplicación web que permita a los empleados del centro comercial pedir comida a los restaurantes y recibirla en su local, con seguimiento del pedido de principio a fin.
+
+**Específicos:**
+
+- Manejar cuatro roles (empleado, restaurante, domiciliario y admin) con un solo inicio de sesión seguro (bcrypt + JWT).
+- Llevar el pedido por sus estados (`pendiente → preparando → en_camino → entregado`) y guardar el historial de cada cambio.
+- Garantizar las reglas de negocio en la base de datos con llaves foráneas, `CHECK` y triggers, y validarlas también en el backend.
+- Guardar las imágenes (productos, logos, fotos de perfil, carnés y evidencias de entrega) con persistencia dual: archivo en disco y metadatos en MySQL.
+- Ofrecer una interfaz sencilla y responsive que funcione desde el celular del empleado o del domiciliario.
+
+## Arquitectura
+
+```
+┌──────────────────────┐   fetch + JWT    ┌───────────────────────────┐   PyMySQL   ┌──────────────┐
+│  Frontend (APP/)     │ ───────────────▶ │  Backend FastAPI (:3000)  │ ──────────▶ │  MySQL 8     │
+│  HTML + CSS + JS     │ ◀─────────────── │  rutas/ · seguridad.py    │ ◀────────── │  foodcourt   │
+│  rutas con #hash     │      JSON        │  archivos.py              │             │  + triggers  │
+└──────────────────────┘                  └─────────────┬─────────────┘             └──────────────┘
+                                                        │ guarda archivos
+                                                        ▼
+                                              backend/uploads/<carpeta>/
+```
+
+- **Frontend:** una sola página (SPA) en JavaScript puro. Navega con rutas `#/…`, guarda el token en `sessionStorage` y protege las rutas privadas.
+- **Backend:** API REST en FastAPI dividida por módulos (`auth`, `catalogo`, `pedidos`, `archivos`). También sirve el frontend y las imágenes públicas.
+- **Base de datos:** MySQL 8 con 13 tablas. Los triggers cuidan las reglas del pedido y llenan el historial de estados.
+
+### Modelo entidad-relación
+
+![Diagrama entidad-relación](docs/diagrama-er.png)
+
+`usuarios` es la tabla central: cada persona tiene un solo login, y los datos propios de su rol van en `empleados` o `domiciliarios` (relación 1 a 1). `pedidos` une al empleado, al restaurante, al domiciliario y al cupón; `detalle_pedidos` y `empleado_cupon` resuelven las relaciones N:M. Todas las imágenes viven en `archivos` y las demás tablas solo guardan su id.
+
+### Persistencia dual
+
+Cada imagen que se sube se guarda en dos partes, dentro de una sola operación:
+
+1. **El archivo físico** va a `backend/uploads/<carpeta>/` con un nombre único (UUID), nunca con el nombre que manda el usuario.
+2. **Sus metadatos** van a la tabla `archivos`: nombre original, nombre almacenado, tipo MIME, peso, ruta, categoría, autor y fecha.
+
+| Categoría | Carpeta | ¿Pública? |
+|---|---|---|
+| `foto_producto` | `productos/` | Sí |
+| `logo_restaurante` | `logos/` | Sí |
+| `evidencia_entrega` | `entregas/` | Sí |
+| `foto_perfil` | `perfiles/` | No, solo con login |
+| `carne_empleado` | `carnes/` | No, solo con login |
+
+Antes de guardar se valida la extensión, el tipo MIME, la firma real del archivo (magic bytes) y el peso máximo de 5 MB. Si falla la base de datos se borra el archivo del disco, y si falla el disco no se crea el registro, así nunca quedan enlaces rotos. Al eliminar un archivo se borra de los dos lados; la foto de entrega no se puede borrar porque es la prueba del pedido.
+
 ```
 Proyecto-DEW/
 ├── APP/            Frontend (HTML + CSS + JS) que consume la API
@@ -15,7 +71,7 @@ Proyecto-DEW/
 │   ├── requirements.txt
 │   └── .env.example
 ├── database/       schema.sql · seed.sql · pruebas.sql
-└── docs/           diagrama entidad-relación
+└── docs/           diagrama-er.png (modelo entidad-relación)
 ```
 
 ## Cómo correrlo
@@ -76,6 +132,7 @@ Cualquier empleado nuevo puede crear su cuenta desde **Regístrate** en la venta
 | POST | `/api/archivos` | logueado | `multipart`: `categoria` (`foto_perfil`, `carne_empleado`, `logo_restaurante`) + `archivo` |
 | GET | `/api/archivos` | logueado | Archivos que subió el usuario (el admin ve todos) |
 | GET | `/api/archivos/:id/descargar?ver=1` | dueño o admin | Ver (`ver=1`) o descargar el archivo |
+| GET | `/api/perfil/foto` | logueado | Foto de perfil del usuario (404 si no tiene) |
 | DELETE | `/api/archivos/:id` | dueño o admin | Borra el archivo del disco y de la tabla (las fotos de entrega no se borran) |
 
 Los errores siempre responden `{"error": "...", "campos": {"campo": "mensaje"}}`; el frontend muestra cada mensaje debajo de su campo.
@@ -104,4 +161,4 @@ Las garantizan los triggers de `schema.sql`; el backend además las valida antes
 - Flujo: `pendiente → preparando → en_camino → entregado` (se puede cancelar antes de salir).
 - No sale en camino sin domiciliario, y solo se asignan domiciliarios disponibles.
 - Precios y descuentos se calculan con los datos de la BD, no con los del navegador.
-- **Persistencia dual:** las fotos se guardan en `backend/uploads/` y sus metadatos en la tabla `archivos`.
+- **Persistencia dual:** las fotos se guardan en `backend/uploads/` y sus metadatos en la tabla `archivos` (ver arriba).

@@ -184,6 +184,18 @@ def descargar(id_archivo: int, ver: int = 0, u=Depends(usuario_actual), conn=Dep
                         content_disposition_type="inline" if ver else "attachment")
 
 
+@router.get("/perfil/foto")
+def mi_foto(u=Depends(usuario_actual), conn=Depends(get_db)):
+    """Foto de perfil del usuario logueado (para mostrarla junto a su nombre). 404 si no tiene."""
+    a = uno(conn, """SELECT a.ruta_url, a.tipo_mime FROM usuarios us
+                     JOIN archivos a ON a.id_archivo = us.id_foto_perfilFK
+                     WHERE us.id_usuario = %s""", (u["id"],))
+    ruta = (BASE.parent / a["ruta_url"]).resolve() if a else None
+    if not ruta or BASE.resolve() not in ruta.parents or not ruta.is_file():
+        raise ErrorApi(404, "No tienes foto de perfil")
+    return FileResponse(ruta, media_type=a["tipo_mime"])
+
+
 @router.delete("/archivos/{id_archivo}")
 def borrar(id_archivo: int, u=Depends(usuario_actual), conn=Depends(get_db)):
     a = uno(conn, "SELECT * FROM archivos WHERE id_archivo = %s", (id_archivo,))
