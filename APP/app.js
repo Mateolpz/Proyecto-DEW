@@ -40,14 +40,15 @@ const $ = (s) => document.querySelector(s);
 const money = (n) => "$" + Math.round(n).toLocaleString("es-CO");
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const foto = (ruta) => (ruta ? `${SERVIDOR}/${ruta}` : "");
-const EMOJI = { "Hamburguesas": "🍔", "Pizzería": "🍕", "Comida típica": "🍛", "Sushi": "🍣", "Postres": "🍰", "Café": "☕" };
-const emojiDe = (rest) => EMOJI[rest?.categoria] || "🍽️";
+const FOTO_CATEGORIA = { "Hamburguesas": "hamburguesas", "Pizzería": "pizzeria", "Comida típica": "comida-tipica", "Sushi": "sushi", "Postres": "postres", "Café": "cafe" };
+// Foto de respaldo según la categoría del restaurante (si el producto no tiene foto propia)
+const fotoCategoria = (rest) => `img/categorias/${FOTO_CATEGORIA[rest?.categoria] || "ensalada"}.jpg`;
 const ETIQUETA = { pendiente: "Pendiente", preparando: "En preparación", en_camino: "En camino", entregado: "Entregado", cancelado: "Cancelado" };
 const hora = (f) => (f || "").slice(11, 16);
-// Imagen con respaldo: si no hay foto o no carga, muestra el emoji
-const img = (src, alt, emoji) => src
-  ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" onerror="this.replaceWith('${emoji}')">`
-  : emoji;
+// Imagen con respaldo: si no hay foto o no carga, muestra la foto de la categoría
+const img = (src, alt, respaldo) => src
+  ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" onerror="this.onerror=null;this.src='${respaldo}'">`
+  : `<img src="${respaldo}" alt="${esc(alt)}" loading="lazy">`;
 
 /* ====== Estado ====== */
 let restaurantes = [], productos = [];
@@ -131,7 +132,7 @@ function pintarMenu() {
   $("#grid").innerHTML = lista.map(p => {
         const r = restaurantes.find(x => x.id === p.r);
     if (!r) return "";                       // restaurante inactivo o aún no cargado: no se pinta
-    const e = emojiDe(r);
+    const e = fotoCategoria(r);
     return `<article class="card ${p.disponible ? "" : "off"}">
       <div class="photo">${img(foto(p.foto), p.nombre, e)}</div>
       <div class="rest-logo" title="${esc(r.nombre)}">${img(foto(r.logo), r.nombre, e)}</div>
@@ -625,7 +626,7 @@ function pintarProductosPanel(lista) {
   return formNuevoProducto() + lista.map(p => {
     const r = restaurantes.find(x => x.id === p.r);
     return `<article class="order prod-row">
-      <div class="prod-thumb">${img(foto(p.foto), p.nombre, emojiDe(r))}</div>
+      <div class="prod-thumb">${img(foto(p.foto), p.nombre, fotoCategoria(r))}</div>
       <div class="prod-info"><b>${esc(p.nombre)}</b><span class="muted small">${money(p.precio)}</span></div>
       <div class="order-actions">
         <button class="btn ${p.disponible ? "ghost" : ""}" data-toggle="${p.id}" data-disp="${p.disponible ? 0 : 1}">${p.disponible ? "Marcar agotado" : "Marcar disponible"}</button>
@@ -770,4 +771,4 @@ $("#couponInput").onkeydown = (e) => { if (e.key === "Enter") aplicarCupon(e.tar
 let tt; function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2600); }
 
 pintarCarrito(); pintarUsuario(); cargarAvatar(); cargarMenu();
-router();   // muestra la vista que indica la URL (también al recargar con F5)
+router();   // muestra la vista que indica la URL (también al recargar con F5)

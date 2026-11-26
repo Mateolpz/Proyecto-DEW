@@ -332,3 +332,5 @@ h1,h2,h3,.brand,.price,.btn,.chip{font-family:Outfit,Inter,system-ui,sans-serif}
 /* Contraste: texto oscuro sobre el degradado (10:1; el blanco daba 1.8:1 sobre el ámbar) */
 .btn.primary,.cart .btn.primary,.modal .btn.primary,.status-card .btn.primary,.card .btn,.order-actions .btn:not(.ghost),.qty button{color:var(--on-accent)}
 @media (prefers-color-scheme:dark){.card .rest-name{color:#fbaf04}}
+/* Mensajes de estado dentro de la cuadrícula del menú (cargando, error, vacío) ocupan todo el ancho */
+.grid > p{grid-column:1/-1;text-align:center;padding:30px}
