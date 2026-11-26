@@ -9,7 +9,7 @@
 <body>
 
 <header class="topbar">
-  <div class="brand" id="brand">🚚 <span>FoodCourt</span> Express</div>
+  <button type="button" class="brand" id="brand">🚚 <span>FoodCourt</span> Express</button>
   <div class="top-actions">
     <button id="btnPedidos" class="btn ghost" hidden>📋 Mis pedidos</button>
     <button id="btnUser" class="btn ghost">Iniciar sesión</button>
@@ -72,6 +72,7 @@
     <h2>Tu pedido</h2>
     <button id="closeCart" class="icon-btn" aria-label="Cerrar">✕</button>
   </div>
+  <p id="cartRest" class="muted small"></p>
   <div id="cartItems" class="cart-items"></div>
   <div class="coupon">
     <input id="couponInput" type="text" placeholder="Código de cupón">
@@ -163,7 +164,8 @@
         <small class="field-error"></small>
       </label>
       <label class="field">Contraseña *
-        <input name="contrasenia" type="password" autocomplete="new-password" placeholder="Mínimo 8, letras y números">
+        <input name="contrasenia" type="password" autocomplete="new-password" aria-describedby="hintContrasenia">
+        <small id="hintContrasenia" class="hint">Mínimo 8 caracteres, con letras y números</small>
         <small class="field-error"></small>
       </label>
       <label class="field">Confirmar contraseña *
@@ -177,7 +179,7 @@
   </form>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="app.js"></script>
 </body>
 </html>

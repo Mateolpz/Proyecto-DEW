@@ -19,7 +19,10 @@ async function api(ruta, opciones = {}) {
   if (token) headers.Authorization = "Bearer " + token;
   let res;
   try { res = await fetch(API + ruta, { ...opciones, headers }); }
-  catch { throw new Error("No hay conexión con el servidor (¿está corriendo python main.py en la carpeta backend?)"); }
+  catch {
+    // Mensaje claro para el empleado; la pista técnica solo aparece en desarrollo local
+    throw new Error("No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo." + (SERVIDOR ? " (¿está corriendo el backend?)" : ""));
+  }
   const data = await res.json().catch(() => ({}));
    if (res.status === 401 && token) {          // la sesión venció o se cerró en otra parte
     const donde = location.hash;
@@ -121,7 +124,7 @@ async function cargarMenu() {
 function pintarFiltros() {
   const chips = [{ id: 0, nombre: "Todos" }, ...restaurantes];
   $("#filters").innerHTML = chips.map(c =>
-    `<button class="chip ${c.id === filtro ? "on" : ""}" data-r="${c.id}">${esc(c.nombre)}</button>`).join("");
+    `<button class="chip ${c.id === filtro ? "on" : ""}" data-r="${c.id}" aria-pressed="${c.id === filtro}">${esc(c.nombre)}</button>`).join("");
 }
 function pintarMenu() {
   const lista = productos.filter(p => !filtro || p.r === filtro);
@@ -137,7 +140,7 @@ function pintarMenu() {
         <h3>${esc(p.nombre)}</h3>
         <p>${esc(p.descripcion)}</p>
         <div class="foot"><span class="price">${money(p.precio)}</span>
-          <button class="btn" data-add="${p.id}">${p.disponible ? "Agregar" : "Agotado"}</button></div>
+          <button class="btn" data-add="${p.id}" ${p.disponible ? "" : "disabled"}>${p.disponible ? "Agregar" : "Agotado"}</button></div>
       </div></article>`;
   }).join("") || `<p class="muted">No hay productos para mostrar.</p>`;
 }
@@ -169,8 +172,11 @@ function pintarCarrito() {
   $("#cartItems").innerHTML = ids.length ? ids.map(id => {
     const p = productos.find(x => x.id == id);
     return `<div class="item"><div><b>${esc(p.nombre)}</b><br><small>${money(p.precio)}</small></div>
-      <div class="qty"><button data-dec="${id}">−</button><b>${carrito[id]}</b><button data-inc="${id}">+</button></div></div>`;
+      <div class="qty"><button data-dec="${id}" aria-label="Quitar uno de ${esc(p.nombre)}">−</button><b>${carrito[id]}</b><button data-inc="${id}" aria-label="Agregar uno más de ${esc(p.nombre)}">+</button></div></div>`;
   }).join("") : `<p class="muted">Tu carrito está vacío.</p>`;
+  const rc = ids.length ? restauranteDelCarrito() : null;
+  const rest = restaurantes.find(x => x.id === rc);
+  $("#cartRest").textContent = rest ? `Pedido de ${rest.nombre} · Local ${rest.local}` : "";
   const t = totales();
   $("#tSub").textContent = money(t.sub); $("#tDisc").textContent = "-" + money(t.desc); $("#tTotal").textContent = money(t.total);
 }
@@ -425,6 +431,7 @@ function pintarSeguimiento(p) {
   const n = FLUJO.indexOf(p.estado);
   document.querySelectorAll("#steps li").forEach((li, i) => {
     li.className = p.estado === "cancelado" ? "" : i < n || p.estado === "entregado" ? "done" : i === n ? "now" : "";
+    if (i === n) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
   });
   $("#statusIcon").textContent = TITULOS[p.estado][0];
   $("#statusTitle").textContent = TITULOS[p.estado][1];
@@ -561,7 +568,7 @@ async function cargarPanel(silencioso = false) {
     if (html === ultimoPanel) return;
     ultimoPanel = html; $("#panelBody").innerHTML = html;
   } catch (e) {
-    if (!silencioso) $("#panelBody").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    if (!silencioso) $("#panelBody").innerHTML = `<p class="error">${esc(e.message)} <button class="btn ghost" data-reintentar>Reintentar</button></p>`;
   }
 }
 function tarjetaPedido(p, repartidores) {
@@ -582,7 +589,7 @@ function tarjetaPedido(p, repartidores) {
     acciones += `<label class="file-btn">📷 Foto de entrega<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" data-evidencia="${p.id}"></label>
       <button class="btn" data-entregar="${p.id}">✅ Marcar entregado</button>`;
 
-  return `<article class="order ${rol === "empleado" ? "clickable" : ""}" ${rol === "empleado" ? `data-ver="${p.id}"` : ""}>
+  return `<article class="order ${rol === "empleado" ? "clickable" : ""}" ${rol === "empleado" ? `data-ver="${p.id}" tabindex="0" role="link"` : ""}>
     <header><b>Pedido #${p.id}</b><span class="estado ${p.estado}">${ETIQUETA[p.estado]}</span></header>
     <div class="order-meta">
       ${rol === "empleado" ? `<span>🍽️ ${esc(p.restaurante)}</span>` : `<span>👤 ${esc(p.empleado)} · ${esc(p.telefono_empleado)}</span>`}
@@ -677,6 +684,7 @@ document.addEventListener("click", async (e) => {
   if (t.hasAttribute?.("data-close") || t.classList?.contains("modal")) cerrarVentana();
   if (t.hasAttribute?.("data-ir-registro")) abrirRegistro();
   if (t.hasAttribute?.("data-ir-login")) abrirLogin(true);
+  if (t.hasAttribute?.("data-reintentar")) { ultimoPanel = ""; cargarPanel(); }
     if (t.hasAttribute?.("data-ver-menu")) $("#grid").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 // Confirmación en dos toques (sin ventanas emergentes del navegador)
@@ -754,8 +762,12 @@ $("#btnCancel").onclick = async (e) => {
 };
 $("#applyCoupon").onclick = () => aplicarCupon($("#couponInput").value);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { cerrarVentana(); abrirCarrito(false); } });
+// Las tarjetas de pedido también se abren con el teclado (Enter)
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.matches?.("[data-ver]")) ir(`#/pedido/${e.target.dataset.ver}`);
+});
 $("#couponInput").onkeydown = (e) => { if (e.key === "Enter") aplicarCupon(e.target.value); };
 let tt; function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2600); }
 
 pintarCarrito(); pintarUsuario(); cargarAvatar(); cargarMenu();
-router();   // muestra la vista que indica la URL (también al recargar con F5)
+router();   // muestra la vista que indica la URL (también al recargar con F5)
